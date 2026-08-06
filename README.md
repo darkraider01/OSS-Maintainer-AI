@@ -9,6 +9,8 @@
 
 An autonomous, multi-platform AI co-maintainer designed to automate workflows and assist open source project maintenance. Built on top of the Caspian SDK.
 
+For a detailed review of components, containers, lifecycles, and deployment layouts, see our [C4 Architecture Documentation](docs/architecture/README.md).
+
 ---
 
 ## Elevator Pitch
