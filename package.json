@@ -5,7 +5,7 @@
   "main": "dist/index.js",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/branybuck/OSS-Maintainer-AI.git"
+    "url": "git+https://github.com/darkraider01/OSS-Maintainer-AI.git"
   },
   "scripts": {
     "dev": "node --loader ts-node/esm src/index.ts",
@@ -35,7 +35,7 @@
     "automation",
     "agents"
   ],
-  "author": "branybuck <branybuck@users.noreply.github.com>",
+  "author": "darkraider01 <darkraider01@users.noreply.github.com>",
   "license": "MIT",
   "devEngines": {
     "packageManager": {

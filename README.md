@@ -21,7 +21,7 @@ For a complete architectural mapping of data flows and modules, review the [Arch
 ### Installation
 ```bash
 # Clone the repository
-git clone https://github.com/branybuck/OSS-Maintainer-AI.git
+git clone https://github.com/darkraider01/OSS-Maintainer-AI.git
 cd OSS-Maintainer-AI
 
 # Install dependencies
