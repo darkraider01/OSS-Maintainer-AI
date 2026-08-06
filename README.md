@@ -1,22 +1,96 @@
 # OSS-Maintainer-AI
 
-Production-grade Open Source AI Maintainer designed to automate workflows and assist open source project maintenance.
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-blue.svg)](https://www.typescriptlang.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-18+-green.svg)](https://nodejs.org/)
+[![CI Build](https://github.com/darkraider01/OSS-Maintainer-AI/actions/workflows/ci.yml/badge.svg)](https://github.com/darkraider01/OSS-Maintainer-AI/actions)
+[![Issues](https://img.shields.io/github/issues/darkraider01/OSS-Maintainer-AI.svg)](https://github.com/darkraider01/OSS-Maintainer-AI/issues)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](https://github.com/darkraider01/OSS-Maintainer-AI/pulls)
 
-## Built With
+An autonomous, multi-platform AI co-maintainer designed to automate workflows and assist open source project maintenance. Built on top of the Caspian SDK.
 
-OSS-Maintainer-AI is built on top of the [Caspian SDK](https://github.com/TryCaspian/caspian-sdk). Special thanks to the TryCaspian team for creating and maintaining the SDK that powers this project.
+---
 
-## Core Concepts
+## Elevator Pitch
 
-For an in depth review of project objectives, mission statement, and philosophy, please refer to our [Vision Document](docs/VISION.md).
+OSS-Maintainer-AI acts as a tireless background developer and curator for open-source repositories. By linking code review triggers, messaging interfaces, and execution environments into a unified workspace, it autonomously triages issues, reviews pull requests, runs lint check reports, answers contributor questions, and manages codebase knowledge. This mitigates maintainer burnout and keeps projects responsive.
 
-For a complete architectural mapping of data flows and modules, review the [Architecture Document](docs/ARCHITECTURE.md).
+---
+
+## Why OSS-Maintainer-AI?
+
+Open-source project success is often bottlenecked by human bandwidth:
+* **Maintainer Burnout**: Repetitive issue triaging, checking code styles, and explaining basic issues consumes cognitive energy.
+* **Contributor Onboarding Friction**: New contributors struggle with environment setup or local guidelines, causing delay.
+* **Knowledge Fragmentation**: Design choices (ADRs), documentation, and past issues remain scattered, causing duplicate queries.
+
+OSS-Maintainer-AI addresses these challenges by acting as a **context-aware agent** that runs local tools (compilers, git, test runners) to provide high-quality feedback, answer developer questions, and flag security issues before human review.
+
+---
+
+## Features
+
+### Implemented (Current State)
+* **Scalable Data Schema**: Dialect-independent database schemas (PostgreSQL / SQLite) mapping versioned workflows, actors, executions, traces, and chunked vector embeddings.
+* **Dual Dialect Client**: PostgreSQL connector using `pg` for production, and `better-sqlite3` for local development.
+* **Trace Engine**: Structured tables capturing raw execution logs, observations, and tool parameters.
+* **CI Validation**: Automated GitHub Action pipelines for formatting, linting, type-safety checks, and unit testing.
+
+### Planned (Immediate Roadmap)
+* **Caspian SDK Integration**: Message loop bindings matching unified communication channels.
+* **GitHub Integration**: Inbound webhooks parsing issue comments and pull requests.
+* **Memory & RAG Indexing**: Local Markdown file vector extraction using `pgvector` for semantic context search.
+
+---
+
+## Architecture
+
+The system uses a decoupled layout to separate integrations from the core orchestrator:
+
+```mermaid
+graph TD
+    %% Inbound / Platform entry points
+    GitHubEvent[GitHub Webhook / Action Event] --> Gateway[Gateway: Auth & Sanitization]
+    Gateway --> Orchestrator[Orchestrator: Coordination & State Machine]
+
+    %% Orchestrator sub-systems
+    Orchestrator --> Config[Config: Type-safe Environments via Zod]
+    Orchestrator --> Memory[Memory: Session & Long-term Context]
+    Orchestrator --> RAG[RAG Engine: Knowledge Base & Docs]
+    Orchestrator --> Workflows[Workflows: Multi-Agent Pipelines]
+
+    %% Workflows and execution
+    Workflows --> Agents[Agents: Issue Triage / PR Review]
+    Agents --> LLMProvider[LLM Provider: API Abstraction & Prompt Construction]
+    LLMProvider --> ToolRouter[Tool Router: Function Dispatcher]
+
+    %% External tools execution
+    ToolRouter --> GitHubClient[GitHub API / Octokit client]
+    ToolRouter --> LocalWorkspace[Workspace File System]
+```
+
+---
+
+## Technology Stack
+
+* **Caspian SDK**: Chosen as the communication broker. It abstracts away Slack, Discord, and Email API quirks into a single messaging interface.
+* **TypeScript & Node.js (18+)**: Strongly-typed compiler environment for clean application design.
+* **Drizzle ORM**: Declares type-safe SQL schemas with native vector mapping support.
+* **PostgreSQL (with `pgvector`)**: Relational database storing metadata alongside high-dimension embeddings for semantic search.
+* **SQLite (`better-sqlite3`)**: Zero-dependency database driver fallback for local testing.
+* **pnpm**: Fast package dependency installation using hard links.
+* **Vitest**: ESM-native test runner.
+* **Pino**: High-performance JSON logger.
+* **Zod**: Runtime environment schema validation on boot.
+
+---
 
 ## Getting Started
 
 ### Prerequisites
 - Node.js (v18+)
 - pnpm (v11+)
+- PostgreSQL (with `pgvector` extension) *or* SQLite (local)
 
 ### Installation
 ```bash
@@ -28,19 +102,80 @@ cd OSS-Maintainer-AI
 pnpm install
 ```
 
-### Environment Configurations
+### Environment Configuration
 Copy `.env.example` to `.env` and fill out your variables:
 ```bash
 cp .env.example .env
 ```
 
-### Running Locally
+### Database Migrations
+Run the Drizzle migrations to set up your tables:
 ```bash
-pnpm run dev
+pnpm exec drizzle-kit push
 ```
 
+### Execution Commands
+```bash
+pnpm run dev          # Run locally
+pnpm run build        # Compile to JavaScript
+pnpm run test         # Run unit tests
+pnpm run lint         # Check code quality
+pnpm run format:check # Verify formatting
+```
+
+---
+
+## Repository Structure
+
+```
+OSS-Maintainer-AI/
+├── .github/                 # Workflows (CI, Security Audits) & PR/Issue templates
+├── docs/                    # System Vision, Roadmap, and Architectural Decisions (ADRs)
+├── src/
+│   ├── config/              # Environment parser, Logger setup, system constants
+│   ├── db/                  # Drizzle database client & migrations
+│   │   ├── schema/          # Split tables (actors, messages, executions, embeddings)
+│   ├── domain/              # Persistence-independent core domain structures
+│   ├── shared/              # Common helper routines
+│   ├── core/                # Orchestration workflows
+│   ├── types/               # TypeScript compiler interfaces
+│   └── index.ts             # Application entry point
+├── tests/                   # Integration & unit tests
+├── drizzle.config.ts        # Drizzle kit configuration file
+└── package.json             # Core dependency manifest
+```
+
+---
+
+## Roadmap
+
+- [x] Repository Bootstrap
+- [x] Persistence Layer (Drizzle + pgvector)
+- [ ] Caspian SDK Broker Integration
+- [ ] GitHub Integration
+- [ ] Memory & RAG Indexing
+- [ ] Issue Triage Agent
+- [ ] PR Review Agent
+- [ ] Multi-Agent Orchestration Workflows
+- [ ] GitLab, Slack, and Discord Connectors
+
+---
+
 ## Contributing
-Please read [CONTRIBUTING.md](CONTRIBUTING.md) to understand how to format commits, style code, and review pull requests.
+
+We welcome contributions! Please review our guides to get started:
+* [CONTRIBUTING.md](CONTRIBUTING.md) — Git workflow and commit conventions.
+* [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Pledge of inclusion.
+* [SECURITY.md](SECURITY.md) — Vulnerability reporting policy.
+
+---
+
+## Built With
+
+OSS-Maintainer-AI is an independent open-source project built using the [Caspian SDK](https://github.com/TryCaspian/caspian-sdk). We give special thanks to the TryCaspian team for creating and maintaining the SDK that powers this project's communication layer.
+
+---
 
 ## License
-Licensed under the [MIT License](LICENSE).
+
+Distributed under the [MIT License](LICENSE).
