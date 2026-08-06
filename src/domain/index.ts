@@ -61,3 +61,6 @@ export interface ExecutionState {
   currentStep?: string;
   errors?: Error[];
 }
+
+// Small documentation update to prompt PR commit changes
+export const DOMAIN_VERSION = '1.0.0';
