@@ -1,0 +1,23 @@
+name: Security Audits
+
+on:
+  schedule:
+    - cron: '0 0 * * 1' # Runs weekly on Mondays
+  push:
+    branches: [ main ]
+
+jobs:
+  audit:
+    name: Dependency Vulnerability Scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v3
+        with:
+          version: 11
+
+      - name: Run Audit
+        run: pnpm audit

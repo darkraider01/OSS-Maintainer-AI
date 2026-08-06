@@ -1,0 +1,40 @@
+name: Bug report
+description: Create a report to help us improve
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to fill out this bug report!
+  - type: textarea
+    id: description
+    attributes:
+      label: Bug Description
+      description: A clear and concise description of what the bug is.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps To Reproduce
+      description: Steps to reproduce the behavior.
+      placeholder: |
+        1. Setup '...'
+        2. Execute command '...'
+        3. See error '...'
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Relevant logs or outputs here.
+      render: shell
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment Settings
+      description: Node version, OS, pnpm version.
+      placeholder: |
+        - OS: Windows 11
+        - Node: 18.16.0
+        - pnpm: 11.20.0

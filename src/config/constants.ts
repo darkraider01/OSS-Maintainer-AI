@@ -1,0 +1,8 @@
+export const SYSTEM_DEFAULTS = {
+  RETRIES: 3,
+  TIMEOUT_MS: 30000,
+};
+
+export const PLATFORM_LIMITS = {
+  MAX_MESSAGE_LENGTH: 5000,
+};
