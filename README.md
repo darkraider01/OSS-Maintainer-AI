@@ -53,7 +53,7 @@ This diagram illustrates how external platforms interact with the system and how
 
 ```mermaid
 graph TD
-    subgraph Platforms [External Integrations]
+    subgraph Platforms [Event Sources]
         GH[GitHub]
         GL[GitLab]
         SL[Slack]
@@ -63,14 +63,30 @@ graph TD
         LN[Linear]
     end
 
+    subgraph Adapters [Integration Adapter Layer]
+        GHA[GitHub Adapter]
+        GLA[GitLab Adapter]
+        SLA[Slack Adapter]
+        DCA[Discord Adapter]
+        EMA[Email Adapter]
+        JRA[Jira Adapter]
+        LNA[Linear Adapter]
+    end
+
     subgraph Core [OSS-Maintainer-AI Engine]
-        GW[Unified Event Gateway] --> EN[Event Normalization Layer]
-        EN --> OR[Orchestrator Core]
+        GW[Unified Event Gateway]
+        EN[Event Normalization Layer]
+        BUS[Internal Event Bus]
+        OR[Orchestrator Core]
+        
+        GW --> EN
+        EN --> BUS
+        BUS --> OR
     end
 
     subgraph Runtime [Caspian SDK Runtime Layer]
         OR --> SDK[Caspian SDK Engine]
-        SDK --> LLM[Abstracted LLM Providers]
+        SDK --> LLM[Model Provider Abstraction]
     end
 
     subgraph Tooling [External Tool Execution]
@@ -78,12 +94,29 @@ graph TD
     end
 
     subgraph Persistence [Database Layer]
-        DB[(PostgreSQL / SQLite)]
-        VEC[(pgvector Embeddings)]
+        DB[(PostgreSQL - Structured Ops)]
+        DEV[(SQLite - Local Dev)]
+        VEC[(pgvector - Semantic Search)]
     end
 
-    Platforms --> GW
+    GH --> GHA
+    GL --> GLA
+    SL --> SLA
+    DC --> DCA
+    EM --> EMA
+    JR --> JRA
+    LN --> LNA
+
+    GHA --> GW
+    GLA --> GW
+    SLA --> GW
+    DCA --> GW
+    EMA --> GW
+    JRA --> GW
+    LNA --> GW
+
     OR -.-> DB
+    OR -.-> DEV
     OR -.-> VEC
 ```
 
@@ -98,59 +131,75 @@ graph TD
     subgraph Input [Ingress]
         Event[External Event] --> Gateway[Event Gateway]
         Gateway --> Normalizer[Event Normalizer]
+        Normalizer --> EventBus[Internal Event Bus]
     end
 
     subgraph Orchestration [Orchestrator Core]
-        Normalizer --> Orchestrator[Orchestrator]
+        EventBus --> Orchestrator[Orchestrator]
         Orchestrator --> Workflows[Workflow Template Engine]
-        Workflows --> Executions[Execution Runner]
+        Workflows --> ExecState[Execution State Manager]
     end
 
     subgraph AgentRuntime [Caspian Agent Runtime]
-        Executions --> CaspianSDK[Caspian SDK Runtime]
-        CaspianSDK --> Agents[AI Agent Instance]
+        ExecState --> CaspianSDK[Caspian SDK Runtime]
+        CaspianSDK --> Executor[Agent Executor]
     end
 
     subgraph Context [Cognitive Context Assembly]
-        Agents --> Memory[Memory Service]
-        Agents --> Knowledge[Knowledge Base / RAG]
-        Agents --> Prompts[Prompt Builder]
+        Executor --> Memory[Memory Service]
+        Executor --> Knowledge[Knowledge Base / RAG]
         
         Memory --> ContextBuilder[Context Builder]
         Knowledge --> ContextBuilder
-        Prompts --> ContextBuilder
+        ContextBuilder --> Prompts[Prompt Builder]
     end
 
-    subgraph Model [LLM Integration Layer]
-        ContextBuilder --> LLM[LLM Provider Layer]
+    subgraph Model [Model Runtime Layer]
+        Prompts --> LLM[Model Provider Abstraction]
     end
 
     subgraph ExecutionLoop [Tool Execution Loop]
         LLM -- Request Tool --> Router[Tool Router]
-        Router --> LocalTools[Git / Filesystem / DB / Search]
-        LocalTools -- Return Observation --> CaspianSDK
+        
+        Router --> GH_API[GitHub API]
+        Router --> FS[Workspace / Filesystem]
+        Router --> Search[Web Search]
+        Router --> Custom[Custom Tools]
+
+        GH_API -- Return Observation --> CaspianSDK
+        FS -- Return Observation --> CaspianSDK
+        Search -- Return Observation --> CaspianSDK
+        Custom -- Return Observation --> CaspianSDK
+
         LLM -- Final Output --> Artifacts[Execution Artifacts]
     end
 
-    subgraph DB [Persistence & Observability]
+    subgraph DB [Persistence Layer]
         Relational[(PostgreSQL / SQLite)]
         Vector[(pgvector Store)]
-        Obs[Logging / Metrics / Tracing]
+    end
+
+    subgraph Observability [Observability Engine]
+        Log[Logging - Pino]
+        Met[Metrics]
+        Trace[Tracing]
     end
 
     Orchestrator -.-> Relational
     Context -.-> Vector
-    ExecutionLoop -.-> Obs
+    Orchestration -.-> Observability
+    AgentRuntime -.-> Observability
+    ExecutionLoop -.-> Observability
 ```
 
 ---
 
 ### Component Responsibilities
 
-1. **OSS-Maintainer-AI Responsibility**: Handles workflow state management, maps incoming normalized platform payloads to agent instances, coordinates memory retention policies, structures local workspace context, and formats output execution artifacts.
-2. **Caspian SDK Responsibility**: Serves as the communication runtime engine. It abstracts platform API connection protocols (handling Slack webhooks, Discord connection streams, Email routing) into a single event stream and provides unified tool execution loops.
-3. **Choice of Caspian SDK**: We use Caspian because it decouples agent intelligence from communication channel configurations. Adding support for a new platform (like GitLab or Jira) only requires adding a channel handler in Caspian without changes to the core orchestrator or memory layouts.
-4. **Data Isolation**: Database models and RAG/vector components are kept strictly separated from execution orchestration code to allow easy migration, independent schema scaling, and dry-run tests.
+1. **OSS-Maintainer-AI Core**: Responsible for defining workflow templates (`WorkflowTemplate`), managing versioned steps (`WorkflowVersion`), orchestrating execution run-states (`ExecutionState`), building user prompt templates, formatting outputs, and emitting telemetry metrics.
+2. **Caspian SDK Runtime**: Manages the message polling loop and handles interaction loops between agent executors and LLM providers. It abstracts provider SDK schemas (OpenAI, Anthropic, Gemini) and resolves tools requested by models.
+3. **Integration Isolation**: External communication channels and repository providers are isolated from the orchestrator runtime using the **Integration Adapter Layer**. Platform events are parsed into a normalized internal scheme before hitting the gateway. Adding GitLab or Jira requires writing a custom integration adapter without modifying the core orchestrator or memory layouts.
+4. **Decoupled Context, Memory, & Knowledge**: Memory (session histories) and Knowledge Bases (indexed documents) are implemented as independent helper services. The `Context Builder` combines these nodes before passing them to the `Prompt Builder` for LLM compilation, preventing LLM provider dependencies from bleeding into storage layouts.
 
 ---
 
