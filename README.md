@@ -1,6 +1,10 @@
 # OSS-Maintainer-AI
 
-Production-grade Open Source AI Maintainer designed to automate workflows and assist open source project maintenance. Built on top of the [Caspian SDK](https://github.com/TryCaspian/caspian-sdk).
+Production-grade Open Source AI Maintainer designed to automate workflows and assist open source project maintenance.
+
+## Built With
+
+OSS-Maintainer-AI is built on top of the [Caspian SDK](https://github.com/TryCaspian/caspian-sdk). Special thanks to the TryCaspian team for creating and maintaining the SDK that powers this project.
 
 ## Core Concepts
 
@@ -17,7 +21,7 @@ For a complete architectural mapping of data flows and modules, review the [Arch
 ### Installation
 ```bash
 # Clone the repository
-git clone https://github.com/TryCaspian/OSS-Maintainer-AI.git
+git clone https://github.com/branybuck/OSS-Maintainer-AI.git
 cd OSS-Maintainer-AI
 
 # Install dependencies

@@ -1,11 +1,11 @@
 {
-  "name": "@trycaspian/oss-maintainer-ai",
+  "name": "oss-maintainer-ai",
   "version": "1.0.0",
   "description": "Production-grade Open Source AI Maintainer designed to automate workflows and assist open source project maintenance.",
   "main": "dist/index.js",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/TryCaspian/OSS-Maintainer-AI.git"
+    "url": "git+https://github.com/branybuck/OSS-Maintainer-AI.git"
   },
   "scripts": {
     "dev": "node --loader ts-node/esm src/index.ts",
@@ -35,7 +35,7 @@
     "automation",
     "agents"
   ],
-  "author": "TryCaspian Contributors",
+  "author": "branybuck <branybuck@users.noreply.github.com>",
   "license": "MIT",
   "devEngines": {
     "packageManager": {
