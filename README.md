@@ -45,29 +45,112 @@ OSS-Maintainer-AI addresses these challenges by acting as a **context-aware agen
 
 ## Architecture
 
-The system uses a decoupled layout to separate integrations from the core orchestrator:
+OSS-Maintainer-AI separates platform-specific integrations from core orchestration logic, relying on the **Caspian SDK** as its foundational runtime layer.
+
+### High-Level System Architecture
+
+This diagram illustrates how external platforms interact with the system and how the persistence layer acts as a backing datastore.
 
 ```mermaid
 graph TD
-    %% Inbound / Platform entry points
-    GitHubEvent[GitHub Webhook / Action Event] --> Gateway[Gateway: Auth & Sanitization]
-    Gateway --> Orchestrator[Orchestrator: Coordination & State Machine]
+    subgraph Platforms [External Integrations]
+        GH[GitHub]
+        GL[GitLab]
+        SL[Slack]
+        DC[Discord]
+        EM[Email]
+        JR[Jira]
+        LN[Linear]
+    end
 
-    %% Orchestrator sub-systems
-    Orchestrator --> Config[Config: Type-safe Environments via Zod]
-    Orchestrator --> Memory[Memory: Session & Long-term Context]
-    Orchestrator --> RAG[RAG Engine: Knowledge Base & Docs]
-    Orchestrator --> Workflows[Workflows: Multi-Agent Pipelines]
+    subgraph Core [OSS-Maintainer-AI Engine]
+        GW[Unified Event Gateway] --> EN[Event Normalization Layer]
+        EN --> OR[Orchestrator Core]
+    end
 
-    %% Workflows and execution
-    Workflows --> Agents[Agents: Issue Triage / PR Review]
-    Agents --> LLMProvider[LLM Provider: API Abstraction & Prompt Construction]
-    LLMProvider --> ToolRouter[Tool Router: Function Dispatcher]
+    subgraph Runtime [Caspian SDK Runtime Layer]
+        OR --> SDK[Caspian SDK Engine]
+        SDK --> LLM[Abstracted LLM Providers]
+    end
 
-    %% External tools execution
-    ToolRouter --> GitHubClient[GitHub API / Octokit client]
-    ToolRouter --> LocalWorkspace[Workspace File System]
+    subgraph Tooling [External Tool Execution]
+        SDK --> Tools[Git / Filesystem / Package Managers]
+    end
+
+    subgraph Persistence [Database Layer]
+        DB[(PostgreSQL / SQLite)]
+        VEC[(pgvector Embeddings)]
+    end
+
+    Platforms --> GW
+    OR -.-> DB
+    OR -.-> VEC
 ```
+
+---
+
+### Internal Component Architecture
+
+This diagram details the internal runtime execution loop, tracing how events flow through normalization, execution engines, agents, context construction, and tool router cycles.
+
+```mermaid
+graph TD
+    subgraph Input [Ingress]
+        Event[External Event] --> Gateway[Event Gateway]
+        Gateway --> Normalizer[Event Normalizer]
+    end
+
+    subgraph Orchestration [Orchestrator Core]
+        Normalizer --> Orchestrator[Orchestrator]
+        Orchestrator --> Workflows[Workflow Template Engine]
+        Workflows --> Executions[Execution Runner]
+    end
+
+    subgraph AgentRuntime [Caspian Agent Runtime]
+        Executions --> CaspianSDK[Caspian SDK Runtime]
+        CaspianSDK --> Agents[AI Agent Instance]
+    end
+
+    subgraph Context [Cognitive Context Assembly]
+        Agents --> Memory[Memory Service]
+        Agents --> Knowledge[Knowledge Base / RAG]
+        Agents --> Prompts[Prompt Builder]
+        
+        Memory --> ContextBuilder[Context Builder]
+        Knowledge --> ContextBuilder
+        Prompts --> ContextBuilder
+    end
+
+    subgraph Model [LLM Integration Layer]
+        ContextBuilder --> LLM[LLM Provider Layer]
+    end
+
+    subgraph ExecutionLoop [Tool Execution Loop]
+        LLM -- Request Tool --> Router[Tool Router]
+        Router --> LocalTools[Git / Filesystem / DB / Search]
+        LocalTools -- Return Observation --> CaspianSDK
+        LLM -- Final Output --> Artifacts[Execution Artifacts]
+    end
+
+    subgraph DB [Persistence & Observability]
+        Relational[(PostgreSQL / SQLite)]
+        Vector[(pgvector Store)]
+        Obs[Logging / Metrics / Tracing]
+    end
+
+    Orchestrator -.-> Relational
+    Context -.-> Vector
+    ExecutionLoop -.-> Obs
+```
+
+---
+
+### Component Responsibilities
+
+1. **OSS-Maintainer-AI Responsibility**: Handles workflow state management, maps incoming normalized platform payloads to agent instances, coordinates memory retention policies, structures local workspace context, and formats output execution artifacts.
+2. **Caspian SDK Responsibility**: Serves as the communication runtime engine. It abstracts platform API connection protocols (handling Slack webhooks, Discord connection streams, Email routing) into a single event stream and provides unified tool execution loops.
+3. **Choice of Caspian SDK**: We use Caspian because it decouples agent intelligence from communication channel configurations. Adding support for a new platform (like GitLab or Jira) only requires adding a channel handler in Caspian without changes to the core orchestrator or memory layouts.
+4. **Data Isolation**: Database models and RAG/vector components are kept strictly separated from execution orchestration code to allow easy migration, independent schema scaling, and dry-run tests.
 
 ---
 
