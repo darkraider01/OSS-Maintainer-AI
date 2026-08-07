@@ -26,7 +26,10 @@ const envSchema = z.object({
   CASPIAN_WEBHOOK_PATH: z.string().startsWith('/').default('/webhooks/caspian'),
   CASPIAN_WEBHOOK_SECRET: z.string().optional(),
   /** Public URL registered with the gateway via `setWebhook`. */
-  CASPIAN_WEBHOOK_URL: z.string().url().optional(),
+  CASPIAN_WEBHOOK_URL: z.preprocess(
+    (val) => (val === '' ? undefined : val),
+    z.string().url().optional()
+  ),
   PORT: z.coerce.number().int().positive().default(3000),
 
   /** Channels we accept ingress from. GitHub is the first (FR-1). */
