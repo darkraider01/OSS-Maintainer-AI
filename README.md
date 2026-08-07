@@ -20,73 +20,131 @@ pnpm demo
 ```
 
 To run individual provider mocks:
-
 - `pnpm demo:github` — replays a GitHub Issue thread.
 - `pnpm demo:slack` — replays a Slack Mention thread.
 
 ---
 
-## 🎯 Reviewer Q&A
+## 🚀 Executive Summary (1-Minute Read)
 
-### 1. What problem does OSS-Maintainer-AI solve?
+### The Problem
+Open-source maintainers face severe burnout. Triaging issues, responding to repetitive queries, and managing onboarding friction across multiple fragmented channels (Slack, Discord, GitHub, Email) eats up hours of productive coding time.
 
-Open-source maintainers face severe burnout triaging issues, managing onboarding friction, and answering repetitive questions across fragmented platforms (Slack, GitHub, Discord, Email). OSS-Maintainer-AI automates this by acting as a context-aware maintainer agent answering comments and triaging issues.
+### The Solution: OSS-Maintainer-AI
+OSS-Maintainer-AI is a platform-independent, context-aware co-maintainer agent that unifies these channels into a single execution stream. It acts as an automated assistant to maintain conversations, triage bug reports, and answer questions.
 
-### 2. Why use Caspian?
+### Why Caspian Matters
+Caspian acts as the unified communication backbone of the system. Instead of writing, configuring, and securing custom API clients, webhooks, signature verification logic, and polling loops for 10 different platforms, we write **one adapter per channel** that translates to/from Caspian format. Caspian coordinates real-time tunnels automatically.
 
-Caspian provides a unified, secure messaging gateway. Instead of building webhook ingestion, polling loops, signature verification, and API clients for 10 different platforms, we write **one adapter per channel** that translates to/from Caspian format. Caspian coordinates real-time tunnels automatically, making multi-channel integrations trivial.
-
-### 3. How does the architecture work?
-
-We implement a decoupled **Runtime Execution Subsystem**. External platforms (Slack/GitHub) send events to the **CaspianGateway**, which normalizes them to a `UnifiedEvent`. The **CommunicationService** resolves conversation and identity threads in a local SQLite/Postgres DB, then publishes the event to the **EventBus**. The **WorkflowEngine** intercepts it, instantiates `AgentContext`, triggers `MaintainerAgent` execution via the `LLMProvider` contract, and posts replies back via `OutputAdapters` target routes.
-
-### 4. How do I run the demo?
-
-Follow the [⚡ Quick Start](#-quick-start-5-minute-zero-config-demo) section above, or see [DEMO.md](file:///c:/Users/branybuck/code/OSS-Maintainer/DEMO.md) for a detailed walkthrough script.
+### Why This is Different from a Normal Chatbot
+Traditional chatbots are hardcoded to a specific chat API (e.g., Slackbot SDK) and lack unified cross-channel identity and context. OSS-Maintainer-AI unifies identity and context under a single database actor model:
+* If you tell the bot your name on Slack, it remembers it when you message it on Discord.
+* If you define custom variables (`x = 5`) on one channel, the context carries over to all other channels in real-time.
 
 ---
 
-## Features
+## 🖥️ Live Demo
 
-### Implemented (Current State)
+The project currently supports and has been demonstrated live on the following channels:
+* **Slack**
+* **Discord**
 
-- **Caspian Ingress**: Inbound messages arrive through the Caspian gateway in either polling or webhook mode, with HMAC signature verification and event de-duplication on the webhook path.
-- **GitHub Channel**: Normalized into the Unified Event Model and answered on the same thread.
-- **Slack Channel**: Normalized into the Unified Event Model and answered on the same thread/channels.
-- **Integration Adapter Layer**: Channel-specific normalization lives entirely in `src/gateway/adapters/`; the orchestrator only ever sees unified events.
-- **Agent Subsystem**: Decoupled registry, execution runtime container, LLM provider wrappers, prompt builder, and output response formatting adapters.
-- **Scalable Data Schema**: Dialect-independent database schemas (PostgreSQL / SQLite) mapping versioned workflows, actors, executions, traces, and chunked vector embeddings.
-- **Dual Dialect Client**: PostgreSQL connector using `pg` for production, and `better-sqlite3` for local development.
-- **Trace Engine**: Structured tables capturing raw execution logs, observations, and tool parameters.
-- **CI Validation**: Automated GitHub Action pipelines for formatting, linting, type-safety checks, and unit testing.
+Both platforms are connected **simultaneously** through Caspian and share:
+* **One Communication Layer** to normalize message routing
+* **One UnifiedEvent model** representing any incoming platform action
+* **One Conversation Service** to manage and track thread sessions
+* **One Identity Service** to merge cross-platform usernames into a single actor record
+* **One Maintainer Agent** responding with consistent instructions
+* **One memory/context pipeline** resolving cross-channel thread history
 
-### Planned (Immediate Roadmap)
-
-- **Memory & RAG Indexing**: Local Markdown file vector extraction using `pgvector` for semantic context search.
-- **Additional Channels**: Discord, Email, Jira, and Teams integrations.
+> [!NOTE]
+> The screenshots in this repository demonstrate the exact same running maintainer agent instance responding on both Slack and Discord, recalling variables and context across platforms.
 
 ---
 
-## Supported Providers
+## 🔌 How Caspian Fits
 
-- [x] GitHub
-- [x] Slack
-- [ ] Discord
-- [ ] Telegram
-- [ ] Email
-- [ ] Jira
-- [ ] Linear
-- [ ] Microsoft Teams
+Caspian is **not** simply another SDK dependency. It is the communication backbone that abstracts away the infrastructure of supported messaging platforms.
+
+Instead of writing platform-specific ingress webhooks and client libraries, the flow unifies immediately:
+
+```
+Slack/Discord
+     ↓
+  Caspian
+     ↓
+Communication Layer
+     ↓
+  UnifiedEvent
+     ↓
+Maintainer Agent
+```
+
+This structural separation ensures that platform-specific API quirks, payload differences, and signature validation details are isolated at the edge, keeping the core agent logic entirely clean.
 
 ---
 
-## Architecture
+## 🐙 GitHub Integration Strategy
 
-OSS-Maintainer-AI separates platform-specific integrations from core orchestration logic, relying on the **Caspian SDK** as its foundational runtime layer.
+In a production environment, GitHub integration operates alongside real-time chat channels to form a unified maintenance suite.
 
-### High-Level System Architecture
+### Production Architecture Diagram
 
-This diagram illustrates how external platforms interact with the system and how the persistence layer acts as a backing datastore.
+```
+                    OSS-Maintainer-AI
+
+GitHub Webhook --------------\
+                              \
+Slack (Caspian) ---------------> Communication Layer
+Discord (Caspian) ------------/
+                                |
+                                ▼
+                          UnifiedEvent
+                                ▼
+                     Conversation Service
+                     Identity Resolution
+                     Memory Management
+                                ▼
+                       Maintainer Agent
+                                ▼
+                          LLM + Tools
+                                |
+                 +--------------+--------------+
+                 |                             |
+         GitHub API (Octokit)        Caspian (Slack/Discord)
+```
+
+### Ingress & Egress Routing
+* **GitHub Ingress:** Delivered via GitHub Webhooks directly into the Communication Layer.
+* **GitHub Egress:** Communicates directly via the official GitHub REST API (using Octokit) to manage issues, pull requests, and commit statuses.
+* **Slack / Discord Ingress & Egress:** Handled completely through Caspian's unified connection broker.
+* **Zero Platform Logic:** Both ingress paths immediately converge into the same `UnifiedEvent` pipeline. From that point onward, the agent processes discussions without any platform-specific business logic.
+
+### Why GitHub is Not in the Live Demo
+My original intention was to demonstrate GitHub together with another communication platform because this project targets OSS maintainers. 
+
+During development, I discovered that GitHub is not currently available as a communication channel in the public Caspian environment. Rather than implementing a separate GitHub-specific runtime, I kept the architecture provider-independent and demonstrated the exact same runtime using Slack and Discord.
+
+---
+
+## ⚡ Supported Providers
+
+| Channel | Status | Details |
+| :--- | :--- | :--- |
+| **Slack** | 🟢 Live | Verified live and fully operational. |
+| **Discord** | 🟢 Live | Verified live and fully operational. |
+| **GitHub** | 🟡 Architecture Ready | Ingress/egress code ready; awaits Caspian channel support. |
+| **Email** | 🟡 Architecture Ready | Adapter schema ready. |
+| **Telegram** | 🟡 Architecture Ready | Adapter schema ready. |
+| **Jira** | 🟡 Architecture Ready | Adapter schema ready. |
+| **Linear** | 🟡 Architecture Ready | Adapter schema ready. |
+| **Microsoft Teams** | 🟡 Architecture Ready | Adapter schema ready. |
+
+---
+
+## 📐 High-Level Architecture
+
+This diagram illustrates how platform events are normalized at the edge before entering the core agent workflow engine:
 
 ```mermaid
 graph TD
@@ -131,7 +189,7 @@ graph TD
     end
 
     subgraph Persistence [Database Layer]
-        DB[(PostgreSQL - Structured Ops)]
+        DB[(PostgreSQL - Production)]
         DEV[(SQLite - Local Dev)]
         VEC[(pgvector - Semantic Search)]
     end
@@ -157,17 +215,13 @@ graph TD
     OR -.-> VEC
 ```
 
----
-
-## End-to-End Workflow & Agent Execution
-
-Both GitHub issues and Slack mentions travel through the exact same platform-independent communication pipeline, triggering agent workflows and rendering replies back to the originating threads:
+### End-to-End Workflow
 
 ```mermaid
 sequenceDiagram
-    participant Client as GitHub / Slack
+    participant Client as GitHub / Slack / Discord
     participant GW as CaspianGateway
-    participant AD as Adapter (GitHub/Slack)
+    participant AD as Adapter (GitHub/Slack/Discord)
     participant CS as CommunicationService
     participant EB as EventBus
     participant RE as Runtime
@@ -197,108 +251,25 @@ sequenceDiagram
 
 ---
 
-### Internal Component Architecture
+## ⚖️ Why This Architecture Scales
 
-This diagram details the internal runtime execution loop, tracing how events flow through normalization, execution engines, agents, context construction, and tool router cycles.
+Unifying communication under Caspian and the `UnifiedEvent` model creates an incredibly scalable codebase. 
 
-```mermaid
-graph TD
-    subgraph Input [Ingress]
-        Event[External Event] --> Gateway[Event Gateway]
-        Gateway --> Normalizer[Event Normalizer]
-        Normalizer --> EventBus[Internal Event Bus]
-    end
+Adding a new communication provider (e.g., Teams or Jira) only requires:
+1. **A provider adapter:** Normalizes the platform's incoming message JSON to a `UnifiedEvent`.
+2. **Ingress wiring:** Registering the channel webhook path or polling loop.
+3. **Egress wiring:** Adding formatting logic to format replies back to the channel.
 
-    subgraph Orchestration [Orchestrator Core]
-        EventBus --> Orchestrator[Orchestrator]
-        Orchestrator --> Workflows[Workflow Template Engine]
-        Workflows --> ExecState[Execution State Manager]
-    end
-
-    subgraph AgentRuntime [Caspian Agent Runtime]
-        ExecState --> CaspianSDK[Caspian SDK Runtime]
-        CaspianSDK --> Executor[Agent Executor]
-    end
-
-    subgraph Context [Cognitive Context Assembly]
-        Executor --> Memory[Memory Service]
-        Executor --> Knowledge[Knowledge Base / RAG]
-
-        Memory --> ContextBuilder[Context Builder]
-        Knowledge --> ContextBuilder
-        ContextBuilder --> Prompts[Prompt Builder]
-    end
-
-    subgraph Model [Model Runtime Layer]
-        Prompts --> LLM[Model Provider Abstraction]
-    end
-
-    subgraph ExecutionLoop [Tool Execution Loop]
-        LLM -- Request Tool --> Router[Tool Router]
-
-        Router --> GH_API[GitHub API]
-        Router --> FS[Workspace / Filesystem]
-        Router --> Search[Web Search]
-        Router --> Custom[Custom Tools]
-
-        GH_API -- Return Observation --> CaspianSDK
-        FS -- Return Observation --> CaspianSDK
-        Search -- Return Observation --> CaspianSDK
-        Custom -- Return Observation --> CaspianSDK
-
-        LLM -- Final Output --> Artifacts[Execution Artifacts]
-    end
-
-    subgraph DB [Persistence Layer]
-        Relational[(PostgreSQL / SQLite)]
-        Vector[(pgvector Store)]
-    end
-
-    subgraph Observability [Observability Engine]
-        Log[Logging - Pino]
-        Met[Metrics]
-        Trace[Tracing]
-    end
-
-    Orchestrator -.-> Relational
-    Context -.-> Vector
-    Orchestration -.-> Observability
-    AgentRuntime -.-> Observability
-    ExecutionLoop -.-> Observability
-```
+The core cognitive engines—**Maintainer Agent, Workflow Engine, Memory pipeline, Conversation Service, Identity Service, and LLM Provider integration**—remain completely unchanged. This permits developers to scale channel reach without introducing code churn to the agent core.
 
 ---
 
-### Component Responsibilities
-
-1. **OSS-Maintainer-AI Core**: Responsible for defining workflow templates (`WorkflowTemplate`), managing versioned steps (`WorkflowVersion`), orchestrating execution run-states (`ExecutionState`), building user prompt templates, formatting outputs, and emitting telemetry metrics.
-2. **Caspian SDK Runtime**: Manages the message polling loop and handles interaction loops between agent executors and LLM providers. It abstracts provider SDK schemas (OpenAI, Anthropic, Gemini) and resolves tools requested by models.
-3. **Integration Isolation**: External communication channels and repository providers are isolated from the orchestrator runtime using the **Integration Adapter Layer**. Platform events are parsed into a normalized internal scheme before hitting the gateway. Adding GitLab or Jira requires writing a custom integration adapter without modifying the core orchestrator or memory layouts.
-4. **Decoupled Context, Memory, & Knowledge**: Memory (session histories) and Knowledge Bases (indexed documents) are implemented as independent helper services. The `Context Builder` combines these nodes before passing them to the `Prompt Builder` for LLM compilation, preventing LLM provider dependencies from bleeding into storage layouts.
-
----
-
-## Technology Stack
-
-- **Caspian SDK**: Chosen as the communication broker. It abstracts away Slack, Discord, and Email API quirks into a single messaging interface.
-- **TypeScript & Node.js (18+)**: Strongly-typed compiler environment for clean application design.
-- **Drizzle ORM**: Declares type-safe SQL schemas with native vector mapping support.
-- **PostgreSQL (with `pgvector`)**: Relational database storing metadata alongside high-dimension embeddings for semantic search.
-- **SQLite (`better-sqlite3`)**: Zero-dependency database driver fallback for local testing.
-- **pnpm**: Fast package dependency installation using hard links.
-- **Vitest**: ESM-native test runner.
-- **Pino**: High-performance JSON logger.
-- **Zod**: Runtime environment schema validation on boot.
-
----
-
-## Getting Started
+## 🛠️ Getting Started
 
 ### Prerequisites
-
-- Node.js (v18+)
-- pnpm (v11+)
-- PostgreSQL (with `pgvector` extension) _or_ SQLite (local)
+* Node.js (v18+)
+* pnpm (v11+)
+* PostgreSQL (with `pgvector`) or SQLite (default fallback for zero-config)
 
 ### Installation
 
@@ -311,103 +282,37 @@ cd OSS-Maintainer-AI
 pnpm install
 ```
 
-### Environment Configuration
-
-Copy `.env.example` to `.env` and fill out your variables:
-
-```bash
-cp .env.example .env
-```
-
-### Database Migrations
-
-Run the Drizzle migrations to set up your tables:
-
-```bash
-pnpm exec drizzle-kit push
-```
-
-### Connect the GitHub Channel
-
-Provision the Caspian GitHub channel, then open the printed `authorize_url` to install the App
-on your repositories:
-
-```bash
-pnpm run caspian:connect-github
-```
-
-See [docs/runbooks/caspian-github.md](docs/runbooks/caspian-github.md) for the full setup,
-webhook configuration, and the end-to-end verification steps.
+### Configuration & Migrations
+1. Copy the environment template:
+   ```bash
+   cp .env.example .env
+   ```
+2. Initialize tables using Drizzle:
+   ```bash
+   pnpm exec drizzle-kit push
+   ```
 
 ### Execution Commands
 
 ```bash
-pnpm run dev                    # Run locally
+pnpm run dev                    # Run the live server locally
 pnpm run caspian:connect-github # Provision the Caspian GitHub channel
-pnpm run build                  # Compile to JavaScript
+pnpm run build                  # Compile source code to JS
 pnpm run test                   # Run unit tests
-pnpm run lint                   # Check code quality
-pnpm run format:check           # Verify formatting
+pnpm run lint                   # Check code style and linter errors
 ```
 
 ---
 
-## Repository Structure
-
-```
-OSS-Maintainer-AI/
-├── .github/                 # Workflows (CI, Security Audits) & PR/Issue templates
-├── docs/                    # System Vision, Roadmap, and Architectural Decisions (ADRs)
-├── src/
-│   ├── cli/                 # Operator commands (channel provisioning)
-│   ├── config/              # Environment parser, Logger setup, system constants
-│   ├── db/                  # Drizzle database client & migrations
-│   │   ├── schema/          # Split tables (actors, messages, executions, embeddings)
-│   ├── domain/              # Persistence-independent core domain structures
-│   ├── gateway/             # Caspian ingress, Unified Event Model, internal event bus
-│   │   ├── adapters/        # Per-platform normalization (GitHub first)
-│   │   └── caspian/         # SDK client, message builders, webhook signatures
-│   ├── shared/              # Common helper routines
-│   ├── core/                # Orchestration workflows & event handlers
-│   ├── types/               # TypeScript compiler interfaces
-│   └── index.ts             # Application entry point
-├── tests/                   # Integration & unit tests
-├── drizzle.config.ts        # Drizzle kit configuration file
-└── package.json             # Core dependency manifest
-```
-
----
-
-## Roadmap
-
-- [x] Repository Bootstrap
-- [x] Persistence Layer (Drizzle + pgvector)
-- [x] Caspian SDK Broker Integration
-- [x] GitHub Integration
-- [ ] Memory & RAG Indexing
-- [ ] Issue Triage Agent
-- [ ] PR Review Agent
-- [ ] Multi-Agent Orchestration Workflows
-- [ ] GitLab, Slack, and Discord Connectors
-
----
-
-## Contributing
+## 🤝 Contributing
 
 We welcome contributions! Please review our guides to get started:
-
-- [CONTRIBUTING.md](CONTRIBUTING.md) — Git workflow and commit conventions.
-- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Pledge of inclusion.
-- [SECURITY.md](SECURITY.md) — Vulnerability reporting policy.
-
----
-
-## Built With
-
-OSS-Maintainer-AI is an independent open-source project built using the [Caspian SDK](https://github.com/TryCaspian/caspian-sdk). We give special thanks to the TryCaspian team for creating and maintaining the SDK that powers this project's communication layer.
+* [CONTRIBUTING.md](CONTRIBUTING.md) — Git workflow and commit conventions.
+* [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Pledge of inclusion.
+* [SECURITY.md](SECURITY.md) — Vulnerability reporting policy.
 
 ---
 
-## License
+## 📄 License
 
 Distributed under the [MIT License](LICENSE).

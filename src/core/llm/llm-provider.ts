@@ -77,9 +77,10 @@ export class LiveLLMProvider implements LLMProvider {
     if (!this.apiKey || this.apiKey === 'mock_api_key' || this.apiKey.startsWith('mock')) {
       return new MockLLMProvider().generate(systemPrompt, userPrompt, history);
     }
+    const model = process.env.GEMINI_MODEL || 'gemini-2.5-flash';
     // Call the actual Gemini API using native fetch
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${this.apiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${this.apiKey}`;
       const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -110,7 +111,7 @@ export class LiveLLMProvider implements LLMProvider {
 
       return {
         text,
-        metadata: { live: true, model: 'gemini-2.5-pro' },
+        metadata: { live: true, model },
       };
     } catch (error: any) {
       logger.error({ err: error }, 'Gemini API call failed');

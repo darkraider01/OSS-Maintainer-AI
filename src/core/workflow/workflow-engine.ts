@@ -7,7 +7,9 @@ import type { OutputAdapters } from './output-adapters.js';
 import { logger } from '../../config/logger.js';
 import { db } from '../../db/client.js';
 import { messages } from '../../db/schema/messages.js';
-import { eq, desc } from 'drizzle-orm';
+import { actorAccounts } from '../../db/schema/actor_accounts.js';
+import { actors } from '../../db/schema/actors.js';
+import { eq, desc, and, ne, inArray } from 'drizzle-orm';
 
 export class WorkflowEngine {
   constructor(
@@ -37,8 +39,13 @@ export class WorkflowEngine {
     // 2. Load Memory (recent messages for conversationId)
     log.debug('Loading conversation history from database');
     const recentDbMessages = await db
-      .select()
+      .select({
+        content: messages.content,
+        senderActorId: messages.senderActorId,
+        actorType: actors.type,
+      })
       .from(messages)
+      .innerJoin(actors, eq(messages.senderActorId, actors.id))
       .where(eq(messages.conversationId, event.conversationId))
       .orderBy(desc(messages.createdAt))
       .limit(10);
@@ -46,17 +53,74 @@ export class WorkflowEngine {
     // Map DB messages to chat memory role structure
     const memory = recentDbMessages
       .map((msg: any) => ({
-        role: (msg.senderActorId === event.actorId ? 'user' : 'assistant') as 'user' | 'assistant',
+        role: (msg.actorType === 'agent' || msg.actorType === 'bot' ? 'assistant' : 'user') as
+          'user' | 'assistant',
         content: msg.content,
       }))
       .reverse();
 
-    // 3. Compile PromptContext using PromptBuilder
+    // 3. Resolve Actor account names and connected profiles
+    const associatedAccounts = await db
+      .select()
+      .from(actorAccounts)
+      .where(eq(actorAccounts.actorId, event.actorId));
+
+    const actorName =
+      associatedAccounts.find((acc: any) => acc.provider === event.provider)?.username ||
+      associatedAccounts[0]?.username ||
+      null;
+
+    // 4. Load cross-channel context from other conversations this actor participated in
+    const otherConversations = await db
+      .selectDistinct({ id: messages.conversationId })
+      .from(messages)
+      .where(
+        and(
+          eq(messages.senderActorId, event.actorId),
+          ne(messages.conversationId, event.conversationId)
+        )
+      )
+      .limit(3);
+
+    let crossChannelHistory: Array<{
+      role: 'user' | 'assistant';
+      content: string;
+      conversationId: string;
+    }> = [];
+    if (otherConversations.length > 0) {
+      const convIds = otherConversations.map((c: any) => c.id);
+      const otherMessages = await db
+        .select({
+          content: messages.content,
+          senderActorId: messages.senderActorId,
+          actorType: actors.type,
+          conversationId: messages.conversationId,
+        })
+        .from(messages)
+        .innerJoin(actors, eq(messages.senderActorId, actors.id))
+        .where(inArray(messages.conversationId, convIds))
+        .orderBy(desc(messages.createdAt))
+        .limit(10);
+
+      crossChannelHistory = otherMessages
+        .map((msg: any) => ({
+          role: (msg.actorType === 'agent' || msg.actorType === 'bot' ? 'assistant' : 'user') as
+            'user' | 'assistant',
+          content: msg.content,
+          conversationId: msg.conversationId,
+        }))
+        .reverse();
+    }
+
+    // 5. Compile PromptContext using PromptBuilder
     const promptContext = this.promptBuilder.build(
       event,
       event.conversationContext,
       event.repositoryContext,
-      memory
+      memory,
+      actorName,
+      associatedAccounts.map((acc: any) => ({ provider: acc.provider, username: acc.username })),
+      crossChannelHistory
     );
 
     // 4. Construct AgentContext

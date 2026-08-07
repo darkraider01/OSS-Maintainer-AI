@@ -39,8 +39,20 @@ export class CommunicationService implements ICommunicationService {
       return null;
     }
 
+    const pickString = (source: any, keys: string[]): string | null => {
+      if (!source || typeof source !== 'object') return null;
+      for (const key of keys) {
+        const value = source[key];
+        if (typeof value === 'string' && value.length > 0) return value;
+        if (typeof value === 'number') return String(value);
+      }
+      return null;
+    };
+
     // Self-event loop protection
-    const providerUserId = rawMessage.sender?.id || rawMessage.sender?.providerActorId || 'unknown';
+    const providerUserId =
+      pickString(rawMessage.sender, ['id', 'user_id', 'provider_id', 'providerActorId']) ||
+      'unknown';
     if (await this.identityService.isSelfEvent(provider, providerUserId, correlationId)) {
       log.info({ providerUserId }, 'Dropped self-event loop message');
       return null;
@@ -51,8 +63,14 @@ export class CommunicationService implements ICommunicationService {
       {
         provider,
         providerUserId,
-        username: rawMessage.sender?.login || rawMessage.sender?.username || 'unknown_user',
-        displayName: rawMessage.sender?.name || rawMessage.sender?.displayName || null,
+        username:
+          pickString(rawMessage.sender, ['username', 'login', 'name', 'handle']) || 'unknown_user',
+        displayName: pickString(rawMessage.sender, [
+          'display_name',
+          'real_name',
+          'name',
+          'full_name',
+        ]),
         avatarUrl: rawMessage.sender?.avatarUrl || null,
         email: rawMessage.sender?.email || null,
       },
