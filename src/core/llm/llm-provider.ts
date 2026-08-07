@@ -79,7 +79,7 @@ export class LiveLLMProvider implements LLMProvider {
     }
     // Call the actual Gemini API using native fetch
     try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${this.apiKey}`;
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-pro:generateContent?key=${this.apiKey}`;
       const response = await fetch(url, {
         method: 'POST',
         headers: {
@@ -110,7 +110,7 @@ export class LiveLLMProvider implements LLMProvider {
 
       return {
         text,
-        metadata: { live: true, model: 'gemini-2.5-flash' },
+        metadata: { live: true, model: 'gemini-2.5-pro' },
       };
     } catch (error: any) {
       logger.error({ err: error }, 'Gemini API call failed');
