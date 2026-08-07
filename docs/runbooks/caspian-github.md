@@ -31,9 +31,9 @@ pnpm run caspian:connect-github
 
 Two modes, chosen automatically:
 
-| Mode | When | What happens |
-| --- | --- | --- |
-| Shared App install | `GITHUB_APP_*` unset | `installGitHub()` — one-click install of Caspian's GitHub App |
+| Mode               | When                                                                                      | What happens                                                              |
+| ------------------ | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Shared App install | `GITHUB_APP_*` unset                                                                      | `installGitHub()` — one-click install of Caspian's GitHub App             |
 | Bring your own App | `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_PRIVATE_KEY`, `GITHUB_WEBHOOK_SECRET` all set | `connectGitHub()` — your App, pointed at the gateway's setup/webhook URLs |
 
 Both print an `authorize_url`. Open it and grant the App access to the repositories the agent
@@ -118,11 +118,11 @@ asserts the echo goes back out on the originating message.
 
 ## Troubleshooting
 
-| Symptom | Cause |
-| --- | --- |
-| `Environment validation failed: CASPIAN_API_KEY` | No key in `.env` or the environment |
-| `CASPIAN_WEBHOOK_SECRET is required when CASPIAN_INGRESS_MODE=webhook` | Webhook mode without a secret |
-| 401 `invalid_signature` | `CASPIAN_WEBHOOK_SECRET` differs from the secret registered via `setWebhook` |
-| `Channel not enabled; dropping message` | The channel is missing from `CASPIAN_ENABLED_CHANNELS` |
-| `No adapter registered for channel` | The channel is enabled but has no adapter in `src/gateway/adapters/` |
-| Comments never arrive | The App is not installed on that repository, or `GITHUB_RECEIVE_MODE=mentions` and the comment has no mention |
+| Symptom                                                                | Cause                                                                                                         |
+| ---------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `Environment validation failed: CASPIAN_API_KEY`                       | No key in `.env` or the environment                                                                           |
+| `CASPIAN_WEBHOOK_SECRET is required when CASPIAN_INGRESS_MODE=webhook` | Webhook mode without a secret                                                                                 |
+| 401 `invalid_signature`                                                | `CASPIAN_WEBHOOK_SECRET` differs from the secret registered via `setWebhook`                                  |
+| `Channel not enabled; dropping message`                                | The channel is missing from `CASPIAN_ENABLED_CHANNELS`                                                        |
+| `No adapter registered for channel`                                    | The channel is enabled but has no adapter in `src/gateway/adapters/`                                          |
+| Comments never arrive                                                  | The App is not installed on that repository, or `GITHUB_RECEIVE_MODE=mentions` and the comment has no mention |

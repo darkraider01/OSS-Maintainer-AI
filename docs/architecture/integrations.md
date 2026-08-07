@@ -30,9 +30,9 @@ per channel rather than one webhook schema per platform.
 `CaspianGateway` (`src/gateway/caspian-gateway.ts`) is the single entry point for inbound messages.
 Two transports converge on it:
 
-| Mode | Entry point | Use |
-| --- | --- | --- |
-| `poll` | `client.onMessage` → `gateway.ingest` | Long-lived process; no public URL |
+| Mode      | Entry point                                                           | Use                                 |
+| --------- | --------------------------------------------------------------------- | ----------------------------------- |
+| `poll`    | `client.onMessage` → `gateway.ingest`                                 | Long-lived process; no public URL   |
 | `webhook` | `POST /webhooks/caspian` → `gateway.handleWebhook` → `gateway.ingest` | Serverless / autoscaled deployments |
 
 Both paths produce an `InboundMessage`, which is what adapters consume — nothing downstream of the
