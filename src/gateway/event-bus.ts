@@ -1,7 +1,7 @@
 import { logger } from '../config/logger.js';
 import type { EventEnvelope } from './unified-event.js';
 
-export type EventSubscriber = (envelope: EventEnvelope) => void | Promise<void>;
+export type EventSubscriber = (envelope: any) => void | Promise<void>;
 
 /**
  * The internal event bus every adapter publishes to.
@@ -30,7 +30,7 @@ export class EventBus {
         await subscriber(envelope);
       } catch (error) {
         logger.error(
-          { err: error, eventId: envelope.event.id },
+          { err: error, eventId: envelope.event?.id || (envelope as any).eventId || 'unknown' },
           'Event subscriber failed; continuing'
         );
       }

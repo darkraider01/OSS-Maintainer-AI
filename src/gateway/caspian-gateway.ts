@@ -14,6 +14,8 @@ export interface CaspianClientLike {
   listen(opts?: ListenOptions): Promise<void>;
 }
 
+import type { ICommunicationService } from './adapters/communication-types.js';
+
 export interface CaspianGatewayOptions {
   client: CaspianClientLike;
   bus: EventBus;
@@ -22,6 +24,7 @@ export interface CaspianGatewayOptions {
   enabledChannels?: string[];
   /** Shared secret configured via `client.setWebhook(url, secret)`. */
   webhookSecret?: string;
+  communicationService?: ICommunicationService;
 }
 
 export interface WebhookDelivery {
@@ -67,6 +70,7 @@ export class CaspianGateway {
   private readonly registry: AdapterRegistry;
   private readonly enabledChannels: Set<string>;
   private readonly webhookSecret?: string;
+  private readonly communicationService?: ICommunicationService;
   private readonly seen = new SeenEvents();
   private started = false;
 
@@ -78,6 +82,7 @@ export class CaspianGateway {
       (options.enabledChannels ?? this.registry.channels()).map((c) => c.toLowerCase())
     );
     this.webhookSecret = options.webhookSecret;
+    this.communicationService = options.communicationService;
   }
 
   /**
@@ -165,6 +170,12 @@ export class CaspianGateway {
     }
 
     const event = adapter.normalize(message);
+
+    if (this.communicationService) {
+      const richEnvelope = await this.communicationService.ingest(message.raw, event.provider);
+      return richEnvelope !== null;
+    }
+
     const envelope: EventEnvelope = {
       event,
       respond: async (text: string) => {

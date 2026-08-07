@@ -10,6 +10,10 @@
   "scripts": {
     "dev": "node --loader ts-node/esm src/index.ts",
     "caspian:connect-github": "node --loader ts-node/esm src/cli/connect-github.ts",
+    "demo": "node --loader ts-node/esm src/cli/demo-cli.ts both",
+    "demo:github": "node --loader ts-node/esm src/cli/demo-cli.ts github",
+    "demo:slack": "node --loader ts-node/esm src/cli/demo-cli.ts slack",
+    "demo:both": "node --loader ts-node/esm src/cli/demo-cli.ts both",
     "build": "tsc",
     "test": "vitest run",
     "test:watch": "vitest",

@@ -14,7 +14,7 @@ const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
 
   // --- Caspian gateway ---
-  CASPIAN_API_KEY: z.string().min(1, 'CASPIAN_API_KEY is required for Caspian SDK connectivity'),
+  CASPIAN_API_KEY: z.string().default('mock_api_key'),
   CASPIAN_BASE_URL: z.string().url().default('https://api.trycaspianai.com'),
   CASPIAN_TIMEOUT_SECONDS: z.coerce.number().int().positive().default(30),
 
@@ -50,6 +50,13 @@ const envSchema = z.object({
   GITHUB_TOKEN: z.string().optional(),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
+
+  DEMO_MODE: z
+    .string()
+    .default('true')
+    .transform((value) => value.toLowerCase() === 'true'),
+  LLM_PROVIDER: z.string().default('gemini'),
+  LLM_API_KEY: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

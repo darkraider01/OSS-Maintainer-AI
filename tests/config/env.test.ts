@@ -30,8 +30,9 @@ describe('environment configuration', () => {
     expect(env.CASPIAN_API_KEY).toBe('key_live');
   });
 
-  it('requires an API key outside test mode', () => {
-    expect(() => parseEnv({ NODE_ENV: 'production' })).toThrow(/CASPIAN_API_KEY/);
+  it('defaults to mock_api_key when not provided outside test mode', () => {
+    const env = parseEnv({ NODE_ENV: 'production' });
+    expect(env.CASPIAN_API_KEY).toBe('mock_api_key');
   });
 
   it('requires a webhook secret in webhook ingress mode', () => {
