@@ -1,4 +1,5 @@
 import { githubAdapter } from './github.js';
+import { slackAdapter } from './slack.js';
 import type { IntegrationAdapter } from './types.js';
 
 /**
@@ -26,7 +27,7 @@ export class AdapterRegistry {
   }
 }
 
-/** The default registry. GitHub is the first integration (FR-1). */
+/** The default registry. GitHub and Slack are supported. */
 export function createDefaultRegistry(): AdapterRegistry {
-  return new AdapterRegistry([githubAdapter]);
+  return new AdapterRegistry([githubAdapter, slackAdapter]);
 }

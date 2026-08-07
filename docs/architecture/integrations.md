@@ -64,9 +64,9 @@ import the Caspian SDK, which keeps egress reversible per channel.
 
 ## Adding a New Platform Integration
 
-To add a new platform (e.g. GitLab):
+To add a new platform (e.g. Discord):
 
 1.  Declare the platform key in `provider` enum configurations.
-2.  Create an adapter under `src/gateway/adapters/gitlab.ts` implementing `IntegrationAdapter`.
+2.  Create an adapter under `src/gateway/adapters/discord.ts` implementing `IntegrationAdapter`.
 3.  Register it in `createDefaultRegistry()` and add the channel to `CASPIAN_ENABLED_CHANNELS`.
 4.  No changes are made to the core Orchestrator, Agents, RAG, or Memory databases.
