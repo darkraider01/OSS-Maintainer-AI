@@ -33,14 +33,17 @@ OSS-Maintainer-AI addresses these challenges by acting as a **context-aware agen
 ## Features
 
 ### Implemented (Current State)
+* **Caspian Ingress**: Inbound messages arrive through the Caspian gateway in either polling or webhook mode, with HMAC signature verification and event de-duplication on the webhook path.
+* **GitHub Channel**: The first integration — issue and pull-request comments are normalized into the Unified Event Model and answered on the same thread.
+* **Integration Adapter Layer**: Channel-specific normalization lives entirely in `src/gateway/adapters/`; the orchestrator only ever sees unified events.
 * **Scalable Data Schema**: Dialect-independent database schemas (PostgreSQL / SQLite) mapping versioned workflows, actors, executions, traces, and chunked vector embeddings.
 * **Dual Dialect Client**: PostgreSQL connector using `pg` for production, and `better-sqlite3` for local development.
 * **Trace Engine**: Structured tables capturing raw execution logs, observations, and tool parameters.
 * **CI Validation**: Automated GitHub Action pipelines for formatting, linting, type-safety checks, and unit testing.
 
 ### Planned (Immediate Roadmap)
-* **Caspian SDK Integration**: Message loop bindings matching unified communication channels.
-* **GitHub Integration**: Inbound webhooks parsing issue comments and pull requests.
+* **Issue Triage Agent**: Replace the echo responder with real orchestration on the event bus.
+* **Additional Channels**: Slack, Discord, and Email adapters over the same gateway.
 * **Memory & RAG Indexing**: Local Markdown file vector extraction using `pgvector` for semantic context search.
 
 ---
@@ -248,13 +251,24 @@ Run the Drizzle migrations to set up your tables:
 pnpm exec drizzle-kit push
 ```
 
+### Connect the GitHub Channel
+Provision the Caspian GitHub channel, then open the printed `authorize_url` to install the App
+on your repositories:
+```bash
+pnpm run caspian:connect-github
+```
+
+See [docs/runbooks/caspian-github.md](docs/runbooks/caspian-github.md) for the full setup,
+webhook configuration, and the end-to-end verification steps.
+
 ### Execution Commands
 ```bash
-pnpm run dev          # Run locally
-pnpm run build        # Compile to JavaScript
-pnpm run test         # Run unit tests
-pnpm run lint         # Check code quality
-pnpm run format:check # Verify formatting
+pnpm run dev                    # Run locally
+pnpm run caspian:connect-github # Provision the Caspian GitHub channel
+pnpm run build                  # Compile to JavaScript
+pnpm run test                   # Run unit tests
+pnpm run lint                   # Check code quality
+pnpm run format:check           # Verify formatting
 ```
 
 ---
@@ -266,12 +280,16 @@ OSS-Maintainer-AI/
 ├── .github/                 # Workflows (CI, Security Audits) & PR/Issue templates
 ├── docs/                    # System Vision, Roadmap, and Architectural Decisions (ADRs)
 ├── src/
+│   ├── cli/                 # Operator commands (channel provisioning)
 │   ├── config/              # Environment parser, Logger setup, system constants
 │   ├── db/                  # Drizzle database client & migrations
 │   │   ├── schema/          # Split tables (actors, messages, executions, embeddings)
 │   ├── domain/              # Persistence-independent core domain structures
+│   ├── gateway/             # Caspian ingress, Unified Event Model, internal event bus
+│   │   ├── adapters/        # Per-platform normalization (GitHub first)
+│   │   └── caspian/         # SDK client, message builders, webhook signatures
 │   ├── shared/              # Common helper routines
-│   ├── core/                # Orchestration workflows
+│   ├── core/                # Orchestration workflows & event handlers
 │   ├── types/               # TypeScript compiler interfaces
 │   └── index.ts             # Application entry point
 ├── tests/                   # Integration & unit tests
@@ -285,8 +303,8 @@ OSS-Maintainer-AI/
 
 - [x] Repository Bootstrap
 - [x] Persistence Layer (Drizzle + pgvector)
-- [ ] Caspian SDK Broker Integration
-- [ ] GitHub Integration
+- [x] Caspian SDK Broker Integration
+- [x] GitHub Integration
 - [ ] Memory & RAG Indexing
 - [ ] Issue Triage Agent
 - [ ] PR Review Agent
