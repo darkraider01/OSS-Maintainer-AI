@@ -60,6 +60,8 @@ Both platforms are connected **simultaneously** through Caspian and share:
 > [!NOTE]
 > The screenshots in this repository demonstrate the exact same running maintainer agent instance responding on both Slack and Discord, recalling variables and context across platforms.
 
+![Caspian Multi-Channel Demo](docs/images/demo_screenshot.png)
+
 ---
 
 ## 🔌 How Caspian Fits
