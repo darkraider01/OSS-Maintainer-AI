@@ -1,12 +1,16 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeAll, describe, expect, it, vi } from 'vitest';
 import { CommunicationService } from '../../src/gateway/adapters/communication-service.js';
 import { DeduplicationService } from '../../src/gateway/adapters/deduplication-service.js';
 import { ConversationService } from '../../src/gateway/adapters/conversation-service.js';
 import { IdentityService } from '../../src/gateway/adapters/identity-service.js';
 import { MessagePersistenceService } from '../../src/gateway/adapters/message-persistence-service.js';
 import { db } from '../../src/db/client.js';
+import { runSqliteMigrations } from '../helpers/migrate-sqlite.js';
 
 describe('Communication Normalization Layer Subsystem', () => {
+  beforeAll(() => {
+    runSqliteMigrations();
+  });
   it('correctly ingests, normalizes, maps identities, and deduplicates events', async () => {
     const dedup = new DeduplicationService();
     const conv = new ConversationService();
