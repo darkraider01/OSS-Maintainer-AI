@@ -15,6 +15,7 @@ export default [
       },
       globals: {
         ...globals.node,
+        NodeJS: "readonly",
       },
     },
     plugins: {
