@@ -36,5 +36,8 @@ Thumbs.db
 tmp/
 scratch/
 
+# Local SQLite dev database (accumulates real dev/test data, never commit it)
+local_dev.db
+
 # Changesets temp folders
 .changelog/

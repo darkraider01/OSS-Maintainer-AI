@@ -43,7 +43,7 @@ const envSchema = z.object({
         .filter(Boolean)
     ),
 
-  // --- GitHub channel provisioning ---
+  // --- GitHub channel provisioning (Caspian bring-your-own-App flow) ---
   /** Set all four to bring your own GitHub App; leave unset for one-click install. */
   GITHUB_APP_ID: z.string().optional(),
   GITHUB_APP_SLUG: z.string().optional(),
@@ -51,6 +51,38 @@ const envSchema = z.object({
   GITHUB_WEBHOOK_SECRET: z.string().optional(),
   GITHUB_RECEIVE_MODE: z.enum(['mentions', 'all']).default('mentions'),
   GITHUB_TOKEN: z.string().optional(),
+
+  /**
+   * Direct GitHub channel (bypasses Caspian — GitHub is not a Caspian channel
+   * in the live environment). Reuses the App credentials above for GitHub App
+   * JWT + installation-token auth. Optional: everything else starts normally
+   * when this is left off.
+   */
+  GITHUB_ENABLED: z
+    .string()
+    .default('false')
+    .transform((value) => value.toLowerCase() === 'true'),
+  GITHUB_INSTALLATION_ID: z.string().optional(),
+  GITHUB_WEBHOOK_PATH: z.string().startsWith('/').default('/webhooks/github'),
+
+  /**
+   * Account-linking dashboard: lets one human tie their GitHub, Slack, and
+   * Discord identities to a single actor, so cross-channel memory actually
+   * spans providers. Shares the webhook HTTP server/port. Optional: everything
+   * else starts normally when this is left off.
+   */
+  AUTH_ENABLED: z
+    .string()
+    .default('false')
+    .transform((value) => value.toLowerCase() === 'true'),
+  /** Public base URL (no trailing slash) used to build each provider's OAuth redirect_uri. */
+  AUTH_BASE_URL: z.preprocess((val) => (val === '' ? undefined : val), z.string().url().optional()),
+  GITHUB_OAUTH_CLIENT_ID: z.string().optional(),
+  GITHUB_OAUTH_CLIENT_SECRET: z.string().optional(),
+  SLACK_OAUTH_CLIENT_ID: z.string().optional(),
+  SLACK_OAUTH_CLIENT_SECRET: z.string().optional(),
+  DISCORD_OAUTH_CLIENT_ID: z.string().optional(),
+  DISCORD_OAUTH_CLIENT_SECRET: z.string().optional(),
 
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
@@ -94,6 +126,41 @@ export function parseEnv(source: NodeJS.ProcessEnv = process.env): Env {
     throw new Error(
       'Environment validation failed: CASPIAN_WEBHOOK_SECRET is required when CASPIAN_INGRESS_MODE=webhook'
     );
+  }
+
+  if (result.data.GITHUB_ENABLED) {
+    const missing = (
+      [
+        'GITHUB_APP_ID',
+        'GITHUB_PRIVATE_KEY',
+        'GITHUB_INSTALLATION_ID',
+        'GITHUB_WEBHOOK_SECRET',
+      ] as const
+    ).filter((key) => !result.data[key]);
+    if (missing.length > 0) {
+      throw new Error(
+        `Environment validation failed: ${missing.join(', ')} required when GITHUB_ENABLED=true`
+      );
+    }
+  }
+
+  if (result.data.AUTH_ENABLED) {
+    const missing = (
+      [
+        'AUTH_BASE_URL',
+        'GITHUB_OAUTH_CLIENT_ID',
+        'GITHUB_OAUTH_CLIENT_SECRET',
+        'SLACK_OAUTH_CLIENT_ID',
+        'SLACK_OAUTH_CLIENT_SECRET',
+        'DISCORD_OAUTH_CLIENT_ID',
+        'DISCORD_OAUTH_CLIENT_SECRET',
+      ] as const
+    ).filter((key) => !result.data[key]);
+    if (missing.length > 0) {
+      throw new Error(
+        `Environment validation failed: ${missing.join(', ')} required when AUTH_ENABLED=true`
+      );
+    }
   }
 
   return result.data;

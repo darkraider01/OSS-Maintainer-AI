@@ -10,6 +10,16 @@ import { ConversationService } from './gateway/adapters/conversation-service.js'
 import { IdentityService } from './gateway/adapters/identity-service.js';
 import { MessagePersistenceService } from './gateway/adapters/message-persistence-service.js';
 import { CommunicationService } from './gateway/adapters/communication-service.js';
+import { GitHubGateway } from './gateway/github-gateway.js';
+import { createGitHubAppClient } from './gateway/github/client.js';
+import type { GitHubClientLike } from './gateway/github/client.js';
+import { ensureGitHubBotActor } from './gateway/github/bot-identity.js';
+import { extractGitHubReplyTarget, postGitHubReply } from './gateway/github/egress.js';
+import { createAuthRouter } from './web/auth-routes.js';
+import type { AuthRouter } from './web/auth-routes.js';
+import { GitHubOAuthClient } from './web/oauth/github-oauth.js';
+import { SlackOAuthClient } from './web/oauth/slack-oauth.js';
+import { DiscordOAuthClient } from './web/oauth/discord-oauth.js';
 import { Runtime as AgentRuntime } from './core/runtime.js';
 
 export interface Runtime {
@@ -21,11 +31,12 @@ export interface Runtime {
 }
 
 /**
- * Wire Caspian ingress to the internal event bus.
+ * Wire ingress to the internal event bus.
  *
- * FR-1: messages arrive through Caspian (GitHub is the first channel), get
- * normalized into the Unified Event Model, and a reply goes back out on the
- * same conversation.
+ * FR-1: messages arrive through Caspian (Slack/Discord) or, for GitHub, a
+ * direct webhook (GitHub is not a Caspian channel in the live environment).
+ * Both paths get normalized into the same Unified Event Model and reach the
+ * same `MaintainerAgent`; a reply goes back out on the same conversation.
  */
 export async function bootstrap(options?: { client?: any }): Promise<Runtime> {
   logger.info(
@@ -33,6 +44,8 @@ export async function bootstrap(options?: { client?: any }): Promise<Runtime> {
       env: env.NODE_ENV,
       ingress: env.CASPIAN_INGRESS_MODE,
       channels: env.CASPIAN_ENABLED_CHANNELS,
+      githubEnabled: env.GITHUB_ENABLED,
+      authEnabled: env.AUTH_ENABLED,
     },
     'Bootstrapping OSS-Maintainer-AI Core Engine...'
   );
@@ -45,18 +58,75 @@ export async function bootstrap(options?: { client?: any }): Promise<Runtime> {
   const identityService = new IdentityService();
   const persistenceService = new MessagePersistenceService();
 
+  // GitHub egress: constructed once (if enabled), reused by the eventPublisher's
+  // respond() wiring below and the one-time bot-identity seed.
+  const githubClient: GitHubClientLike | undefined = env.GITHUB_ENABLED
+    ? createGitHubAppClient()
+    : undefined;
+
   const commService = new CommunicationService(
     dedupService,
     convService,
     identityService,
     persistenceService,
     async (envelope) => {
-      envelope.respond = async (text: string) => {
-        await client.reply(envelope.payload.providerEventId, text);
-      };
+      if (envelope.payload.provider === 'github' && githubClient) {
+        envelope.respond = async (text: string) => {
+          // eslint-disable-next-line no-console
+          console.log('→ LLM response generated');
+          const target = extractGitHubReplyTarget(envelope.payload.metadata);
+          if (!target) {
+            logger.warn(
+              { eventId: envelope.eventId },
+              'Missing GitHub owner/repo/issueNumber metadata; cannot post reply'
+            );
+            return;
+          }
+          await postGitHubReply(githubClient!, target, text);
+          // eslint-disable-next-line no-console
+          console.log('→ GitHub comment posted');
+        };
+      } else {
+        envelope.respond = async (text: string) => {
+          await client.reply(envelope.payload.providerEventId, text);
+        };
+      }
       await bus.publish(envelope as any);
     }
   );
+
+  const githubRoute: { gateway: GitHubGateway; path: string } | undefined = env.GITHUB_ENABLED
+    ? {
+        gateway: new GitHubGateway({
+          communicationService: commService,
+          webhookSecret: env.GITHUB_WEBHOOK_SECRET as string,
+          receiveMode: env.GITHUB_RECEIVE_MODE,
+          botLogin: env.GITHUB_APP_SLUG ? `${env.GITHUB_APP_SLUG}[bot]` : undefined,
+        }),
+        path: env.GITHUB_WEBHOOK_PATH,
+      }
+    : undefined;
+
+  const authRouter: AuthRouter | undefined = env.AUTH_ENABLED
+    ? createAuthRouter({
+        identityService,
+        oauthClients: {
+          github: new GitHubOAuthClient(
+            env.GITHUB_OAUTH_CLIENT_ID as string,
+            env.GITHUB_OAUTH_CLIENT_SECRET as string
+          ),
+          slack: new SlackOAuthClient(
+            env.SLACK_OAUTH_CLIENT_ID as string,
+            env.SLACK_OAUTH_CLIENT_SECRET as string
+          ),
+          discord: new DiscordOAuthClient(
+            env.DISCORD_OAUTH_CLIENT_ID as string,
+            env.DISCORD_OAUTH_CLIENT_SECRET as string
+          ),
+        },
+        baseUrl: env.AUTH_BASE_URL as string,
+      })
+    : undefined;
 
   const gateway = new CaspianGateway({
     client,
@@ -72,6 +142,16 @@ export async function bootstrap(options?: { client?: any }): Promise<Runtime> {
     provider: env.LLM_PROVIDER,
   });
 
+  // Registered before the agent-execution subscriber so the trace line prints first.
+  if (env.GITHUB_ENABLED) {
+    bus.subscribe(async (envelope) => {
+      if (envelope?.payload?.provider === 'github') {
+        // eslint-disable-next-line no-console
+        console.log('→ MaintainerAgent executing');
+      }
+    });
+  }
+
   bus.subscribe(async (envelope) => {
     if (envelope.payload) {
       await agentRuntime.processEvent(envelope);
@@ -81,18 +161,32 @@ export async function bootstrap(options?: { client?: any }): Promise<Runtime> {
   // Webhook mode reaches the gateway through HTTP, so no SDK handler is attached.
   if (env.CASPIAN_INGRESS_MODE === 'poll') gateway.start();
 
+  // GitHub always needs its own bot identity seeded so isSelfEvent() can catch its own comments.
+  if (env.GITHUB_ENABLED && githubClient && env.GITHUB_APP_SLUG) {
+    ensureGitHubBotActor(identityService, githubClient, env.GITHUB_APP_SLUG).catch((error) => {
+      logger.error({ err: error }, 'Failed to seed GitHub bot identity');
+    });
+  }
+
   const controller = new AbortController();
   let webhookServer: WebhookServer | undefined;
 
   // Tests stop here: the transport is what needs a live gateway, not the wiring.
   if (env.NODE_ENV !== 'test' && !env.DEMO_MODE) {
-    if (env.CASPIAN_INGRESS_MODE === 'webhook') {
+    // GitHub and the auth dashboard both always need a public HTTP endpoint,
+    // independent of Caspian's ingress mode.
+    const needsHttpServer =
+      env.CASPIAN_INGRESS_MODE === 'webhook' || Boolean(githubRoute) || Boolean(authRouter);
+    if (needsHttpServer) {
       webhookServer = await createWebhookServer({
         gateway,
         port: env.PORT,
         path: env.CASPIAN_WEBHOOK_PATH,
+        github: githubRoute,
+        auth: authRouter,
       });
-    } else {
+    }
+    if (env.CASPIAN_INGRESS_MODE === 'poll') {
       // Runs until the signal aborts; failures surface to the caller.
       void gateway.listen({ signal: controller.signal }).catch((error) => {
         logger.error({ err: error }, 'Caspian listen loop stopped');

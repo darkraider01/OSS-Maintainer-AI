@@ -8,6 +8,7 @@ import type {
   UnifiedEvent,
   EventType,
   MessageType,
+  RepositoryContext,
 } from './communication-types.js';
 import type { ProviderKey } from '../unified-event.js';
 import { logger } from '../../config/logger.js';
@@ -107,6 +108,8 @@ export class CommunicationService implements ICommunicationService {
       attachments: rawMessage.attachments || [],
       mentions: rawMessage.mentions || [],
       replyToId: rawMessage.replyToId || null,
+      repositoryContext:
+        (rawMessage.repositoryContext as RepositoryContext | undefined) ?? undefined,
       metadata: rawMessage.metadata || {},
       rawPayload: rawMessage,
     };

@@ -51,6 +51,8 @@
   },
   "type": "module",
   "dependencies": {
+    "@octokit/auth-app": "^8.1.0",
+    "@octokit/rest": "^22.0.0",
     "better-sqlite3": "^13.0.3",
     "caspian-sdk": "^0.6.1",
     "drizzle-orm": "^0.45.2",

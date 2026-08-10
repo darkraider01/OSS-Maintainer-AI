@@ -57,6 +57,13 @@ export function runSqliteMigrations() {
       "content" TEXT NOT NULL,
       "created_at" TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS "link_sessions" (
+      "id" TEXT PRIMARY KEY,
+      "actor_id" TEXT,
+      "created_at" TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      "expires_at" TEXT NOT NULL
+    );
   `;
 
   db.exec(ddl);

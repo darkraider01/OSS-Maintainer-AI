@@ -1,6 +1,7 @@
 import { db } from '../../db/client.js';
 import { actors } from '../../db/schema/actors.js';
 import { actorAccounts } from '../../db/schema/actor_accounts.js';
+import { messages } from '../../db/schema/messages.js';
 import { eq, and } from 'drizzle-orm';
 import type { IIdentityService } from './communication-types.js';
 import type { ProviderKey } from '../unified-event.js';
@@ -96,5 +97,92 @@ export class IdentityService implements IIdentityService {
     const isSelf = account ? account.type === 'agent' || account.type === 'bot' : false;
     logger.debug({ correlationId, provider, providerUserId, isSelf }, 'Self-event detection check');
     return isSelf;
+  }
+
+  /**
+   * Attach a provider identity to `targetActorId` — the cross-channel-identity
+   * counterpart to `resolveActor`, used by the account-linking dashboard.
+   *
+   * If the provider identity isn't known yet, it's simply added to the target
+   * actor. If it already belongs to a *different* actor, that actor is merged
+   * into the target: its other provider accounts and message history move
+   * over, and the now-empty source actor is deleted. Refuses to merge a
+   * bot/agent actor into a human one.
+   */
+  async linkProviderToActor(
+    targetActorId: string,
+    params: {
+      provider: ProviderKey;
+      providerUserId: string;
+      username: string;
+      displayName?: string | null;
+      avatarUrl?: string | null;
+      email?: string | null;
+    },
+    correlationId?: string
+  ): Promise<{ actorId: string; merged: boolean }> {
+    const log = logger.child({ correlationId, provider: params.provider, targetActorId });
+
+    // Note: deliberately not wrapped in `db.transaction()` — the better-sqlite3
+    // driver (used for local/test) requires transaction callbacks to be fully
+    // synchronous, which an async/await sequence of drizzle queries can't be.
+    // Nothing else in this codebase uses `db.transaction()` either; every other
+    // multi-step write (including `resolveActor` above) is plain sequential
+    // awaited queries, so this matches the established convention.
+    const [existing] = await db
+      .select()
+      .from(actorAccounts)
+      .where(
+        and(
+          eq(actorAccounts.provider, params.provider as any),
+          eq(actorAccounts.providerUserId, params.providerUserId)
+        )
+      );
+
+    if (!existing) {
+      const now = new Date();
+      await db.insert(actorAccounts).values({
+        id: randomUUID(),
+        actorId: targetActorId,
+        provider: params.provider as any,
+        providerUserId: params.providerUserId,
+        username: params.username,
+        email: params.email || null,
+        avatarUrl: params.avatarUrl || null,
+        createdAt: now,
+        updatedAt: now,
+      });
+      log.info('Linked new provider account to actor');
+      this.cache.set(`${params.provider}:${params.providerUserId}`, targetActorId);
+      return { actorId: targetActorId, merged: false };
+    }
+
+    if (existing.actorId === targetActorId) {
+      log.debug('Provider account already linked to this actor');
+      return { actorId: targetActorId, merged: false };
+    }
+
+    const sourceActorId = existing.actorId;
+    const [sourceActor] = await db.select().from(actors).where(eq(actors.id, sourceActorId));
+    if (sourceActor && (sourceActor.type === 'agent' || sourceActor.type === 'bot')) {
+      log.warn({ sourceActorId }, 'Refusing to merge a bot/agent actor into a human actor');
+      return { actorId: targetActorId, merged: false };
+    }
+
+    log.info({ sourceActorId }, 'Merging provider account into target actor');
+    await db
+      .update(actorAccounts)
+      .set({ actorId: targetActorId })
+      .where(eq(actorAccounts.actorId, sourceActorId));
+    await db
+      .update(messages)
+      .set({ senderActorId: targetActorId })
+      .where(eq(messages.senderActorId, sourceActorId));
+    await db.delete(actors).where(eq(actors.id, sourceActorId));
+
+    // Any cached provider->actorId entries pointing at the now-deleted source are stale.
+    this.cache.clear();
+    log.info({ sourceActorId, targetActorId }, 'Actor merge complete');
+    return { actorId: targetActorId, merged: true };
   }
 }

@@ -1,6 +1,7 @@
 export * from './enums.js';
 export * from './actors.js';
 export * from './actor_accounts.js';
+export * from './link_sessions.js';
 export * from './repositories.js';
 export * from './repository_integrations.js';
 export * from './conversations.js';

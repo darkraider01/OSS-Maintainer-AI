@@ -45,11 +45,12 @@ Traditional chatbots are hardcoded to a specific chat API (e.g., Slackbot SDK) a
 
 ## 🖥️ Live Demo
 
-The project currently supports and has been demonstrated live on the following channels:
+The project has been demonstrated live on the following channels:
 * **Slack**
 * **Discord**
+* **GitHub** — a real, direct GitHub App integration (see "🐙 GitHub Integration" below); it bypasses Caspian rather than going through it, since GitHub isn't a Caspian channel today.
 
-Both platforms are connected **simultaneously** through Caspian and share:
+Slack and Discord are connected **simultaneously** through Caspian and share:
 * **One Communication Layer** to normalize message routing
 * **One UnifiedEvent model** representing any incoming platform action
 * **One Conversation Service** to manage and track thread sessions
@@ -86,46 +87,96 @@ This structural separation ensures that platform-specific API quirks, payload di
 
 ---
 
-## 🐙 GitHub Integration Strategy
+## 🐙 GitHub Integration
 
-In a production environment, GitHub integration operates alongside real-time chat channels to form a unified maintenance suite.
+GitHub is not available as a Caspian channel in the public Caspian environment, so — unlike Slack and Discord — it doesn't route through Caspian at all. Instead, OSS-Maintainer-AI runs a **real, direct GitHub App integration**: a signed webhook straight into the same Communication Layer, and real replies posted back via the GitHub REST API (Octokit). It converges into the exact same `UnifiedEvent`, `MaintainerAgent`, and downstream pipeline Slack/Discord use — one AI maintainer, three adapters, not three bots.
 
-### Production Architecture Diagram
+### Architecture Diagram
 
 ```
                     OSS-Maintainer-AI
 
-GitHub Webhook --------------\
-                              \
-Slack (Caspian) ---------------> Communication Layer
-Discord (Caspian) ------------/
-                                |
-                                ▼
-                          UnifiedEvent
-                                ▼
-                     Conversation Service
-                     Identity Resolution
-                     Memory Management
-                                ▼
-                       Maintainer Agent
-                                ▼
+GitHub Webhook ───────────────┐
+                               │
+Slack ─────── Caspian ────────┤
+                               │
+Discord ───── Caspian ────────┤
+                               ▼
+                    Communication Layer
+                               │
+                               ▼
+                         UnifiedEvent
+                               │
+                               ▼
+               Conversation / Identity / Memory
+                               │
+                               ▼
+                        MaintainerAgent
+                               │
+                               ▼
                           LLM + Tools
-                                |
-                 +--------------+--------------+
-                 |                             |
-         GitHub API (Octokit)        Caspian (Slack/Discord)
+                               │
+              ┌────────────────┴────────────────┐
+              ▼                                 ▼
+         GitHub API                          Caspian
+        (Octokit, GitHub App)         (Slack / Discord)
 ```
 
 ### Ingress & Egress Routing
-* **GitHub Ingress:** Delivered via GitHub Webhooks directly into the Communication Layer.
-* **GitHub Egress:** Communicates directly via the official GitHub REST API (using Octokit) to manage issues, pull requests, and commit statuses.
-* **Slack / Discord Ingress & Egress:** Handled completely through Caspian's unified connection broker.
-* **Zero Platform Logic:** Both ingress paths immediately converge into the same `UnifiedEvent` pipeline. From that point onward, the agent processes discussions without any platform-specific business logic.
+* **GitHub Ingress:** `GitHubGateway` (`src/gateway/github-gateway.ts`) verifies the `X-Hub-Signature-256` HMAC, reads `X-GitHub-Event`/`X-GitHub-Delivery`, and normalizes `issues.opened`, `issue_comment.created`, `pull_request.opened`, `pull_request_review.submitted`, and `pull_request_review_comment.created` (`src/gateway/adapters/github.ts`) into the same duck-typed message shape `CommunicationService.ingest()` already accepts from Slack/Discord.
+* **Deduplication:** Reuses the existing `DeduplicationService`, keyed on `X-GitHub-Delivery` — no second dedup system.
+* **Self-event protection:** Reuses `IdentityService.isSelfEvent()` — the GitHub App's own bot identity is seeded as `actors.type = 'bot'` at startup so the agent never replies to its own comments.
+* **GitHub Egress:** The formatted `AgentResponse` goes through the existing `GitHubResponseAdapter`, then a GitHub App-authenticated Octokit client (`src/gateway/github/client.ts`) posts the comment — the `MaintainerAgent` never talks to GitHub directly.
+* **Slack / Discord Ingress & Egress:** Unchanged — handled entirely through Caspian's unified connection broker.
+* **Zero Platform Logic in the core:** Both ingress paths converge into the same `UnifiedEvent` pipeline before the agent ever sees them.
 
-### Why GitHub is Not in the Live Demo
-My original intention was to demonstrate GitHub together with another communication platform because this project targets OSS maintainers. 
+### Enabling it
 
-During development, I discovered that GitHub is not currently available as a communication channel in the public Caspian environment. Rather than implementing a separate GitHub-specific runtime, I kept the architecture provider-independent and demonstrated the exact same runtime using Slack and Discord.
+```bash
+GITHUB_ENABLED=true
+GITHUB_APP_ID=...
+GITHUB_APP_SLUG=...
+GITHUB_PRIVATE_KEY=...
+GITHUB_INSTALLATION_ID=...
+GITHUB_WEBHOOK_SECRET=...
+```
+
+See [`.env.example`](.env.example) for the full list. Leave `GITHUB_ENABLED` unset (default `false`) and Slack/Discord/everything else starts exactly as before — GitHub is fully optional.
+
+### Real end-to-end demo
+
+This is a real integration, not a simulated one — running it live requires your own GitHub App, repository, and a public HTTPS tunnel:
+
+1. `pnpm install && cp .env.example .env`, then `pnpm run dev` to start the app locally.
+2. Expose it with a tunnel (e.g. `smee.io` or `ngrok http 3000`) so GitHub can reach `http://localhost:3000/webhooks/github`.
+3. [Create a GitHub App](https://github.com/settings/apps/new): enable **Issues** and **Pull requests** read/write permissions, subscribe to the `Issues`, `Issue comment`, `Pull request`, `Pull request review`, and `Pull request review comment` webhook events, and set the webhook URL to your tunnel URL + `/webhooks/github` with a webhook secret.
+4. Install the App on a test repository, note the **Installation ID** from the install URL.
+5. Fill in `GITHUB_APP_ID`, `GITHUB_APP_SLUG`, `GITHUB_PRIVATE_KEY` (downloaded from the App settings), `GITHUB_INSTALLATION_ID`, `GITHUB_WEBHOOK_SECRET`, and `GITHUB_ENABLED=true` in `.env`, then restart the app.
+6. Open a real Issue on the test repository.
+7. Watch the terminal show the live pipeline:
+   ```
+   GitHub webhook received
+   → signature verified
+   → event normalized
+   → conversation resolved
+   → actor resolved
+   → MaintainerAgent executing
+   → LLM response generated
+   → GitHub comment posted
+   ```
+8. The agent's reply appears as a real comment on the Issue.
+
+---
+
+## 🔗 Cross-Channel Identity Linking
+
+Each provider identity is resolved independently — `IdentityService.resolveActor()` keys strictly on `(provider, providerUserId)`, so the same human commenting on GitHub and messaging on Discord gets two unrelated actor records by default, and the cross-channel memory `WorkflowEngine` already builds (recent history from *other* conversations the same actor participated in) never bridges providers on its own.
+
+To fix that, there's an optional account-linking dashboard: a human signs in with GitHub, Slack, and Discord, and every identity they authenticate with gets tied to one shared actor.
+
+* **How it works:** visiting the dashboard with no session starts a "Sign in with X" OAuth flow for whichever provider you click first — that establishes the shared actor. Signing in with a second or third provider in the same browser session either attaches that identity to the actor, or, if it was already a separate actor from prior activity, **merges** the two: its other linked accounts and message history move over, and the leftover actor is deleted.
+* **No passwords, no stored tokens.** Provider access tokens are used once, server-side, to fetch `(id, username, avatar)`, then discarded. The security property is the same one "Sign in with X" account-linking uses everywhere: a merge only happens when the same browser, holding a short-lived session cookie, completes a real OAuth round-trip for the account being linked.
+* **Enable it:** set `AUTH_ENABLED=true` plus `AUTH_BASE_URL` and OAuth client id/secret pairs for GitHub, Slack, and Discord — see [`.env.example`](.env.example). It shares the same webhook HTTP server/port as the GitHub and Caspian routes; visit `<AUTH_BASE_URL>/dashboard`. Fully optional — everything else starts normally when it's left off.
 
 ---
 
@@ -133,9 +184,9 @@ During development, I discovered that GitHub is not currently available as a com
 
 | Channel | Status | Details |
 | :--- | :--- | :--- |
-| **Slack** | 🟢 Live | Verified live and fully operational. |
-| **Discord** | 🟢 Live | Verified live and fully operational. |
-| **GitHub** | 🟡 Architecture Ready | Ingress/egress code ready; awaits Caspian channel support. |
+| **Slack** | 🟢 Live | Verified live and fully operational, via Caspian. |
+| **Discord** | 🟢 Live | Verified live and fully operational, via Caspian. |
+| **GitHub** | 🟢 Live (Direct) | Real GitHub App webhook ingress + Octokit egress — bypasses Caspian (not a Caspian channel today). Set `GITHUB_ENABLED=true` to turn it on. |
 | **Email** | 🟡 Architecture Ready | Adapter schema ready. |
 | **Telegram** | 🟡 Architecture Ready | Adapter schema ready. |
 | **Jira** | 🟡 Architecture Ready | Adapter schema ready. |
@@ -298,11 +349,13 @@ pnpm install
 
 ```bash
 pnpm run dev                    # Run the live server locally
-pnpm run caspian:connect-github # Provision the Caspian GitHub channel
+pnpm run caspian:connect-github # Provision GitHub as a Caspian channel (not used by the direct integration below)
 pnpm run build                  # Compile source code to JS
 pnpm run test                   # Run unit tests
 pnpm run lint                   # Check code style and linter errors
 ```
+
+For the real, direct GitHub App integration (webhook ingress + Octokit egress, bypassing Caspian), see "🐙 GitHub Integration" above.
 
 ---
 
