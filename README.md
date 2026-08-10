@@ -201,44 +201,26 @@ This diagram illustrates how platform events are normalized at the edge before e
 
 ```mermaid
 graph TD
-    subgraph Platforms [Event Sources]
-        GH[GitHub]
-        GL[GitLab]
+    subgraph Live [Live Channels]
+        GH[GitHub Webhook]
         SL[Slack]
         DC[Discord]
-        EM[Email]
-        JR[Jira]
-        LN[Linear]
     end
 
-    subgraph Adapters [Integration Adapter Layer]
-        GHA[GitHub Adapter]
-        GLA[GitLab Adapter]
-        SLA[Slack Adapter]
-        DCA[Discord Adapter]
-        EMA[Email Adapter]
-        JRA[Jira Adapter]
-        LNA[Linear Adapter]
-    end
+    GHG[GitHubGateway<br/>signature-verified, direct]
+    CG[CaspianGateway]
 
     subgraph Core [OSS-Maintainer-AI Engine]
-        GW[Unified Event Gateway]
-        EN[Event Normalization Layer]
+        CS[CommunicationService<br/>dedup / identity / conversation]
         BUS[Internal Event Bus]
-        OR[Orchestrator Core]
-
-        GW --> EN
-        EN --> BUS
-        BUS --> OR
+        WE[WorkflowEngine]
+        AG[MaintainerAgent]
+        LLM[LLM Provider]
     end
 
-    subgraph Runtime [Caspian SDK Runtime Layer]
-        OR --> SDK[Caspian SDK Engine]
-        SDK --> LLM[Model Provider Abstraction]
-    end
-
-    subgraph Tooling [External Tool Execution]
-        SDK --> Tools[Git / Filesystem / Package Managers]
+    subgraph Egress [Provider-Aware Egress]
+        OCT[Octokit / GitHub API]
+        CAS[Caspian Client]
     end
 
     subgraph Persistence [Database Layer]
@@ -247,25 +229,28 @@ graph TD
         VEC[(pgvector - Semantic Search)]
     end
 
-    GH --> GHA
-    GL --> GLA
-    SL --> SLA
-    DC --> DCA
-    EM --> EMA
-    JR --> JRA
-    LN --> LNA
+    subgraph Planned [Architecture Ready, Not Yet Live]
+        EM[Email]
+        JR[Jira]
+        LN[Linear]
+        TM[MS Teams]
+    end
 
-    GHA --> GW
-    GLA --> GW
-    SLA --> GW
-    DCA --> GW
-    EMA --> GW
-    JRA --> GW
-    LNA --> GW
+    GH --> GHG --> CS
+    SL --> CG
+    DC --> CG
+    CG --> CS
 
-    OR -.-> DB
-    OR -.-> DEV
-    OR -.-> VEC
+    CS --> BUS --> WE --> AG --> LLM
+    WE --> OCT --> GH
+    WE --> CAS --> SL
+    WE --> CAS --> DC
+
+    CS -.-> DB
+    CS -.-> DEV
+    WE -.-> VEC
+
+    Planned -.->|same UnifiedEvent pipeline, once wired| CS
 ```
 
 ### End-to-End Workflow
@@ -273,33 +258,35 @@ graph TD
 ```mermaid
 sequenceDiagram
     participant Client as GitHub / Slack / Discord
-    participant GW as CaspianGateway
-    participant AD as Adapter (GitHub/Slack/Discord)
+    participant GHG as GitHubGateway
+    participant CG as CaspianGateway
     participant CS as CommunicationService
     participant EB as EventBus
-    participant RE as Runtime
     participant WE as WorkflowEngine
     participant AG as MaintainerAgent
     participant LLM as LLMProvider (Mock/Live)
     participant OA as OutputAdapters
-    participant C as Caspian Client (Egress)
+    participant Egress as Octokit / Caspian Client
 
-    Client->>GW: Inbound message (Issue/Mention)
-    GW->>AD: Delegate normalization
-    AD-->>GW: Return UnifiedEvent
-    GW->>CS: Ingest(message.raw)
-    Note over CS: Performs de-duplication, conversation<br/>mapping, identity resolution, and persistence
+    alt GitHub (direct, bypasses Caspian)
+        Client->>GHG: Signed webhook (X-Hub-Signature-256)
+        GHG->>CS: ingest(rawMessage, 'github')
+    else Slack / Discord (via Caspian)
+        Client->>CG: Caspian delivery
+        CG->>CS: ingest(message.raw, provider)
+    end
+
+    Note over CS: De-duplication, identity resolution,<br/>conversation mapping, and persistence
     CS->>EB: Publish EventEnvelope
-    EB->>RE: Process Event
-    RE->>WE: handleEvent(envelope)
+    EB->>WE: handleEvent(envelope)
     WE->>AG: execute(context)
     AG->>LLM: generate(system, user, history)
     LLM-->>AG: Return LLMResponse
     AG-->>WE: Return AgentResponse
     WE->>OA: format(provider, response)
     OA-->>WE: Return formatted text
-    WE->>C: envelope.respond(replyText)
-    C-->>Client: Egress reply to thread/channel
+    WE->>Egress: envelope.respond(replyText)
+    Egress-->>Client: Reply posted (comment / message)
 ```
 
 ---
