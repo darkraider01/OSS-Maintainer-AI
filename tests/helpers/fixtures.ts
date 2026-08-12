@@ -1,6 +1,12 @@
 import type { InboundMessage } from '../../src/gateway/caspian/inbound-message.js';
 import type { CaspianClientLike } from '../../src/gateway/caspian-gateway.js';
-import type { GitHubClientLike, GitHubUser, GitHubComment } from '../../src/gateway/github/client.js';
+import type {
+  GitHubClientLike,
+  GitHubUser,
+  GitHubComment,
+  ContributorActivity,
+  RepositoryDoc,
+} from '../../src/gateway/github/client.js';
 
 export function inboundMessage(overrides: Partial<InboundMessage> = {}): InboundMessage {
   const base: InboundMessage = {
@@ -235,7 +241,10 @@ export interface FakeGitHubClient extends GitHubClientLike {
 }
 
 /** Stand-in for `GitHubAppClient` — records posted comments, resolves seeded users. */
-export function fakeGitHubClient(users: GitHubUser[] = []): FakeGitHubClient {
+export function fakeGitHubClient(
+  users: GitHubUser[] = [],
+  options: { activity?: Record<string, ContributorActivity>; docs?: RepositoryDoc[] } = {}
+): FakeGitHubClient {
   const comments: FakeGitHubClient['comments'] = [];
   const userMap = new Map(users.map((u) => [u.login.toLowerCase(), u]));
   let nextCommentId = 1;
@@ -253,6 +262,12 @@ export function fakeGitHubClient(users: GitHubUser[] = []): FakeGitHubClient {
     },
     async getUserByLogin(login) {
       return userMap.get(login.toLowerCase()) ?? null;
+    },
+    async listContributorActivity(_owner, _repo, login) {
+      return options.activity?.[login.toLowerCase()] ?? { issuesOpened: 0, pullRequestsOpened: 0 };
+    },
+    async getRepositoryDocs() {
+      return options.docs ?? [];
     },
   };
 }

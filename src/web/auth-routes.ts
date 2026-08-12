@@ -7,6 +7,9 @@ import { logger } from '../config/logger.js';
 import type { OAuthClientLike } from './oauth/types.js';
 import { OAuthExchangeError } from './oauth/types.js';
 import { createLinkSession, getLinkSession, setLinkSessionActor } from './link-session-store.js';
+import { getContributorHistory } from '../core/knowledge/contributor-history-service.js';
+import type { ContributorHistory } from '../core/knowledge/contributor-history-service.js';
+import type { GitHubClientLike } from '../gateway/github/client.js';
 
 type LinkableProvider = 'github' | 'slack' | 'discord';
 
@@ -38,6 +41,9 @@ export interface AuthRoutesOptions {
   oauthClients: Record<LinkableProvider, OAuthClientLike>;
   /** Public base URL (no trailing slash) used to build each provider's redirect_uri. */
   baseUrl: string;
+  /** Optional — enables the issues/PRs stat on the dashboard when both are set. */
+  githubClient?: GitHubClientLike;
+  statsRepository?: { owner: string; repo: string };
 }
 
 const PROVIDER_LABELS: Record<LinkableProvider, string> = {
@@ -101,6 +107,7 @@ function pageShell(title: string, body: string): string {
   h1 { font-size: 1.4rem; }
   .provider { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; border: 1px solid #ddd; border-radius: 8px; margin-bottom: 10px; }
   .connected { color: #1a7f37; font-weight: 600; }
+  .stats { color: #57606a; font-size: 0.9rem; }
   a.button { display: inline-block; padding: 8px 14px; background: #1a1a1a; color: #fff; border-radius: 6px; text-decoration: none; }
   .error { color: #b42318; }
 </style>
@@ -110,7 +117,8 @@ function pageShell(title: string, body: string): string {
 }
 
 function renderDashboardPage(
-  linkedAccounts: Array<{ provider: string; username: string }>
+  linkedAccounts: Array<{ provider: string; username: string }>,
+  history?: ContributorHistory
 ): string {
   const rows = (Object.keys(PROVIDER_LABELS) as LinkableProvider[])
     .map((provider) => {
@@ -122,11 +130,16 @@ function renderDashboardPage(
     })
     .join('\n');
 
+  const statsLine = history
+    ? `<p class="stats">${history.messagesSent} messages · ${history.issuesOpened} issues · ${history.pullRequestsOpened} PRs</p>`
+    : '';
+
   return pageShell(
     'OSS-Maintainer-AI — Link your accounts',
     `<h1>Link your accounts</h1>
      <p>Connect GitHub, Slack, and Discord so OSS-Maintainer-AI remembers your conversation across all three.</p>
      ${rows}
+     ${statsLine}
      ${linkedAccounts.length > 0 ? '<p><a href="/auth/logout">Start over with a different identity</a></p>' : ''}`
   );
 }
@@ -145,7 +158,7 @@ function renderErrorPage(message: string): string {
  * control the same identity on GitHub/Slack/Discord.
  */
 export function createAuthRouter(options: AuthRoutesOptions) {
-  const { identityService, oauthClients, baseUrl } = options;
+  const { identityService, oauthClients, baseUrl, githubClient, statsRepository } = options;
 
   async function handleDashboard(
     request: IncomingMessage,
@@ -155,14 +168,16 @@ export function createAuthRouter(options: AuthRoutesOptions) {
     const session = cookies[SESSION_COOKIE] ? await getLinkSession(cookies[SESSION_COOKIE]) : null;
 
     let linkedAccounts: Array<{ provider: string; username: string }> = [];
+    let history: ContributorHistory | undefined;
     if (session?.actorId) {
       linkedAccounts = await db
         .select({ provider: actorAccounts.provider, username: actorAccounts.username })
         .from(actorAccounts)
         .where(eq(actorAccounts.actorId, session.actorId));
+      history = await getContributorHistory(session.actorId, githubClient ?? null, statsRepository);
     }
 
-    sendHtml(response, 200, renderDashboardPage(linkedAccounts));
+    sendHtml(response, 200, renderDashboardPage(linkedAccounts, history));
   }
 
   function handleStart(response: ServerResponse, provider: LinkableProvider): void {

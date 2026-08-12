@@ -84,6 +84,12 @@ const envSchema = z.object({
   DISCORD_OAUTH_CLIENT_ID: z.string().optional(),
   DISCORD_OAUTH_CLIENT_SECRET: z.string().optional(),
 
+  /**
+   * `owner/repo` the dashboard checks for a linked GitHub account's issue/PR
+   * counts. Optional — the dashboard still shows message counts without it.
+   */
+  GITHUB_STATS_REPO: z.string().optional(),
+
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
 
   DEMO_MODE: z

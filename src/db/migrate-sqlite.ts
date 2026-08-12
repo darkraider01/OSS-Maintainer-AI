@@ -64,6 +64,51 @@ export function runSqliteMigrations() {
       "created_at" TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
       "expires_at" TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS "knowledge_sources" (
+      "id" TEXT PRIMARY KEY,
+      "repository_id" TEXT,
+      "type" TEXT NOT NULL,
+      "path_or_url" TEXT NOT NULL,
+      "created_at" TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      "updated_at" TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS "documents" (
+      "id" TEXT PRIMARY KEY,
+      "knowledge_source_id" TEXT NOT NULL,
+      "title" TEXT NOT NULL,
+      "checksum" TEXT NOT NULL,
+      "created_at" TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      "updated_at" TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS "document_chunks" (
+      "id" TEXT PRIMARY KEY,
+      "document_id" TEXT NOT NULL,
+      "content" TEXT NOT NULL,
+      "sequence_order" INTEGER NOT NULL,
+      "chunk_index" INTEGER NOT NULL,
+      "token_count" INTEGER NOT NULL,
+      "checksum" TEXT NOT NULL,
+      "created_at" TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS "doc_chunks_unique_idx" ON "document_chunks" ("document_id", "chunk_index");
+
+    CREATE TABLE IF NOT EXISTS "embeddings" (
+      "id" TEXT PRIMARY KEY,
+      "memory_chunk_id" TEXT,
+      "document_chunk_id" TEXT,
+      "vector" TEXT NOT NULL,
+      "chunk_hash" TEXT NOT NULL,
+      "embedding_model" TEXT NOT NULL,
+      "provider" TEXT NOT NULL,
+      "dimension" INTEGER NOT NULL,
+      "token_count" INTEGER NOT NULL,
+      "checksum" TEXT NOT NULL,
+      "created_at" TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+    );
   `;
 
   db.exec(ddl);

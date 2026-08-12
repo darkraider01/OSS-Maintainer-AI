@@ -107,6 +107,10 @@ export async function bootstrap(options?: { client?: any }): Promise<Runtime> {
       }
     : undefined;
 
+  const [statsOwner, statsRepo] = env.GITHUB_STATS_REPO?.split('/') ?? [];
+  const statsRepository =
+    statsOwner && statsRepo ? { owner: statsOwner, repo: statsRepo } : undefined;
+
   const authRouter: AuthRouter | undefined = env.AUTH_ENABLED
     ? createAuthRouter({
         identityService,
@@ -125,6 +129,8 @@ export async function bootstrap(options?: { client?: any }): Promise<Runtime> {
           ),
         },
         baseUrl: env.AUTH_BASE_URL as string,
+        githubClient,
+        statsRepository,
       })
     : undefined;
 

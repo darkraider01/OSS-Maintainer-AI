@@ -10,6 +10,7 @@
   "scripts": {
     "dev": "node --env-file=.env --loader ts-node/esm src/index.ts",
     "caspian:connect-github": "node --env-file=.env --loader ts-node/esm src/cli/connect-github.ts",
+    "ingest:docs": "node --env-file=.env --loader ts-node/esm src/cli/ingest-docs.ts",
     "demo": "node --loader ts-node/esm src/cli/demo-cli.ts both",
     "demo:github": "node --loader ts-node/esm src/cli/demo-cli.ts github",
     "demo:slack": "node --loader ts-node/esm src/cli/demo-cli.ts slack",

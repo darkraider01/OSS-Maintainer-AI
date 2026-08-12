@@ -177,6 +177,18 @@ To fix that, there's an optional account-linking dashboard: a human signs in wit
 * **How it works:** visiting the dashboard with no session starts a "Sign in with X" OAuth flow for whichever provider you click first — that establishes the shared actor. Signing in with a second or third provider in the same browser session either attaches that identity to the actor, or, if it was already a separate actor from prior activity, **merges** the two: its other linked accounts and message history move over, and the leftover actor is deleted.
 * **No passwords, no stored tokens.** Provider access tokens are used once, server-side, to fetch `(id, username, avatar)`, then discarded. The security property is the same one "Sign in with X" account-linking uses everywhere: a merge only happens when the same browser, holding a short-lived session cookie, completes a real OAuth round-trip for the account being linked.
 * **Enable it:** set `AUTH_ENABLED=true` plus `AUTH_BASE_URL` and OAuth client id/secret pairs for GitHub, Slack, and Discord — see [`.env.example`](.env.example). It shares the same webhook HTTP server/port as the GitHub and Caspian routes; visit `<AUTH_BASE_URL>/dashboard`. Fully optional — everything else starts normally when it's left off.
+* **Contributor history:** the dashboard also shows a small stats line per linked identity — messages sent (from the actor's own message history) plus, when `GITHUB_STATS_REPO=owner/repo` is set, issues opened and PRs opened in that repo (via the GitHub Search API). Degrades gracefully to message-count-only when GitHub isn't linked or configured.
+
+---
+
+## 📚 Documentation Ingestion Pipeline
+
+`pnpm run ingest:docs owner/repo` pulls a repository's README and every `.md`/`.mdx`/`.txt` file under `/docs`, chunks each document on paragraph boundaries, embeds every chunk, and stores the result following the hierarchical schema already defined in [`docs/architecture/persistence.md`](docs/architecture/persistence.md): `knowledge_sources` → `documents` → `document_chunks` → `embeddings` (a real `pgvector` column in Postgres; JSON-serialized text in SQLite dev — same code, no dialect branching).
+
+* **Idempotent:** each document's content is checksummed; unchanged documents are skipped entirely on re-runs (no re-chunk, no re-embed, no wasted API calls) — safe to run on a schedule or after every push.
+* **Embeddings:** `MockLLMProvider` generates a deterministic fake vector (demo mode, tests — no API key needed); `LiveLLMProvider` calls Gemini's embedding endpoint with `outputDimensionality: 1536` to match the schema's fixed vector size.
+* **Not included:** wiring these embeddings into the agent's actual replies (retrieval-augmented prompting) — this pipeline stores them; using them for retrieval is a natural follow-up, not built here.
+* Uses the same GitHub App client as the direct GitHub channel above. Works out of the box on public repos with the App's existing permissions; private repos may need **Contents: Read** added under the App's permissions if it fails with a 403.
 
 ---
 

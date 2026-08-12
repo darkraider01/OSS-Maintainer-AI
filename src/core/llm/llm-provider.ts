@@ -1,8 +1,15 @@
+import { createHash } from 'node:crypto';
 import { logger } from '../../config/logger.js';
 
 export interface LLMResponse {
   text: string;
   metadata?: Record<string, unknown>;
+}
+
+export interface EmbeddingResult {
+  vector: number[];
+  model: string;
+  dimension: number;
 }
 
 export interface LLMProvider {
@@ -15,6 +22,29 @@ export interface LLMProvider {
     userPrompt: string,
     history?: Array<{ role: 'user' | 'assistant'; content: string }>
   ): Promise<LLMResponse>;
+  embed(text: string): Promise<EmbeddingResult>;
+}
+
+/** Matches the `embeddings.vector` schema's fixed `vector(1536)` column. */
+const EMBEDDING_DIMENSION = 1536;
+
+/**
+ * Deterministic, dependency-free fake embedding: SHA-256-chains the input to
+ * fill `dimension` floats, then normalizes to a unit vector. Same input always
+ * produces the same output — good enough for demo mode and tests, no network.
+ */
+function deterministicVector(text: string, dimension: number): number[] {
+  const vector: number[] = [];
+  let block = text;
+  while (vector.length < dimension) {
+    const hash = createHash('sha256').update(block).digest();
+    for (let i = 0; i + 4 <= hash.length && vector.length < dimension; i += 4) {
+      vector.push((hash.readUInt32BE(i) / 0xffffffff) * 2 - 1);
+    }
+    block = hash.toString('hex');
+  }
+  const norm = Math.sqrt(vector.reduce((sum, v) => sum + v * v, 0)) || 1;
+  return vector.map((v) => v / norm);
 }
 
 export class MockLLMProvider implements LLMProvider {
@@ -44,6 +74,14 @@ export class MockLLMProvider implements LLMProvider {
         mocked: true,
         tokensUsed: 42,
       },
+    };
+  }
+
+  async embed(text: string): Promise<EmbeddingResult> {
+    return {
+      vector: deterministicVector(text, EMBEDDING_DIMENSION),
+      model: 'mock-embedding',
+      dimension: EMBEDDING_DIMENSION,
     };
   }
 }
@@ -120,5 +158,36 @@ export class LiveLLMProvider implements LLMProvider {
         metadata: { live: true, error: true },
       };
     }
+  }
+
+  async embed(text: string): Promise<EmbeddingResult> {
+    if (!this.apiKey || this.apiKey === 'mock_api_key' || this.apiKey.startsWith('mock')) {
+      return new MockLLMProvider().embed(text);
+    }
+    const model = process.env.GEMINI_EMBEDDING_MODEL || 'gemini-embedding-001';
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:embedContent?key=${this.apiKey}`;
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        content: { parts: [{ text }] },
+        outputDimensionality: EMBEDDING_DIMENSION,
+      }),
+    });
+
+    if (!response.ok) {
+      const errText = await response.text();
+      throw new Error(`Gemini embedding API returned status ${response.status}: ${errText}`);
+    }
+
+    const data = (await response.json()) as any;
+    const vector = data.embedding?.values;
+    if (!Array.isArray(vector) || vector.length !== EMBEDDING_DIMENSION) {
+      throw new Error(
+        `Gemini embedding API returned an unexpected vector shape (length ${vector?.length ?? 'unknown'}, expected ${EMBEDDING_DIMENSION})`
+      );
+    }
+
+    return { vector, model, dimension: EMBEDDING_DIMENSION };
   }
 }

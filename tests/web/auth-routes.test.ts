@@ -10,7 +10,7 @@ import { IdentityService } from '../../src/gateway/adapters/identity-service.js'
 import { db } from '../../src/db/client.js';
 import { actorAccounts } from '../../src/db/schema/actor_accounts.js';
 import { runSqliteMigrations } from '../helpers/migrate-sqlite.js';
-import { fakeClient } from '../helpers/fixtures.js';
+import { fakeClient, fakeGitHubClient } from '../helpers/fixtures.js';
 
 let server: WebhookServer;
 
@@ -60,6 +60,10 @@ beforeEach(async () => {
       discord: stubOAuthClient({ providerUserId: 'd-999', username: 'gopher', avatarUrl: null }),
     },
     baseUrl: 'https://example.com',
+    githubClient: fakeGitHubClient([], {
+      activity: { octocat: { issuesOpened: 3, pullRequestsOpened: 1 } },
+    }),
+    statsRepository: { owner: 'darkraider01', repo: 'OSS-Maintainer-AI' },
   });
 
   const caspianGateway = new CaspianGateway({
@@ -123,6 +127,8 @@ describe('account-linking dashboard routes', () => {
     });
     const html = await dashboard.text();
     expect(html).toContain('Connected as octocat');
+    expect(html).toContain('3 issues');
+    expect(html).toContain('1 PRs');
   });
 
   it('rejects a callback with a missing or mismatched state', async () => {
