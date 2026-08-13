@@ -10,13 +10,24 @@ import { messages } from '../../db/schema/messages.js';
 import { actorAccounts } from '../../db/schema/actor_accounts.js';
 import { actors } from '../../db/schema/actors.js';
 import { eq, desc, and, ne, inArray } from 'drizzle-orm';
+import { ConversationStateStore } from '../state/conversation-state-store.js';
+import {
+  DEFAULT_ESCALATION_POLICY,
+  type EscalationReason,
+} from '../escalation/escalation-types.js';
+import type { WorkflowMetadata } from './workflow-types.js';
+import { metrics } from '../observability/metrics.js';
+import { randomUUID } from 'crypto';
+import { ContributorProfileService } from '../contributor/contributor-profile-service.js';
 
 export class WorkflowEngine {
   constructor(
     private readonly agentRegistry: AgentRegistry,
     private readonly promptBuilder: PromptBuilder,
     private readonly llmProvider: LLMProvider,
-    private readonly outputAdapters: OutputAdapters
+    private readonly outputAdapters: OutputAdapters,
+    private readonly stateStore: ConversationStateStore = new ConversationStateStore(),
+    private readonly contributorProfileService: ContributorProfileService = new ContributorProfileService()
   ) {}
 
   /**
@@ -36,7 +47,21 @@ export class WorkflowEngine {
       return;
     }
 
-    // 2. Load Memory (recent messages for conversationId)
+    // 2. Human-escalation gate: once a conversation is escalated, the agent
+    // stops replying autonomously until a human clears it (PRD §9 — "prevent
+    // the agent from repeatedly responding while the conversation is under
+    // human control"). The event is still persisted upstream by
+    // CommunicationService; only the auto-reply is suppressed here.
+    const conversationState = await this.stateStore.get(event.conversationId);
+    if (conversationState.escalatedAt) {
+      log.info(
+        { escalationReason: conversationState.escalationReason },
+        'Conversation is under human control; skipping autonomous agent response'
+      );
+      return;
+    }
+
+    // 3. Load Memory (recent messages for conversationId)
     log.debug('Loading conversation history from database');
     const recentDbMessages = await db
       .select({
@@ -112,6 +137,10 @@ export class WorkflowEngine {
         .reverse();
     }
 
+    // 4b. Contributor profile — factual aggregation (connected accounts,
+    // message count, onboarding state), not a score (PRD §15).
+    const contributorProfile = await this.contributorProfileService.build(event.actorId);
+
     // 5. Compile PromptContext using PromptBuilder
     const promptContext = this.promptBuilder.build(
       event,
@@ -120,7 +149,8 @@ export class WorkflowEngine {
       memory,
       actorName,
       associatedAccounts.map((acc: any) => ({ provider: acc.provider, username: acc.username })),
-      crossChannelHistory
+      crossChannelHistory,
+      contributorProfile
     );
 
     // 4. Construct AgentContext
@@ -134,26 +164,115 @@ export class WorkflowEngine {
       logger: log,
       config: {},
       tools: [],
+      escalation: { failureStreak: conversationState.failureStreak },
+      triageState: conversationState.triageState,
     };
 
-    // 5. Trigger Agent Execution
+    // 5. Trigger Agent Execution. LLM/GitHub calls already degrade gracefully
+    // internally (retry, then fall back to a text response) — this catch is
+    // the last line of defense for anything else that throws (a DB error, a
+    // bug in a workflow), so an event never gets silently dropped with zero
+    // reply (PRD §10: "do not crash runtime... notify user appropriately").
     log.info({ agent: agent.name }, 'Invoking agent execute hook');
+    const executionId = randomUUID();
     const startTime = Date.now();
-    const response = await agent.execute(agentContext);
+    let response: Awaited<ReturnType<typeof agent.execute>>;
+    let executionFailed = false;
+    try {
+      response = await agent.execute(agentContext);
+    } catch (error) {
+      executionFailed = true;
+      log.error(
+        { err: error },
+        'Agent execution failed unexpectedly; degrading to a fallback reply'
+      );
+      response = {
+        text: "Something went wrong processing this on my end. I've recorded it and a maintainer will follow up.",
+        confidence: 0,
+        actions: [],
+        artifacts: [],
+        metadata: { agent: agent.name, executionError: true },
+      };
+    }
     const executionTime = Date.now() - startTime;
+    const workflowMetadata = response.metadata as WorkflowMetadata | undefined;
+    const workflowName =
+      (response.metadata as { workflow?: string } | undefined)?.workflow ?? 'unknown';
+    const status = executionFailed
+      ? 'error'
+      : workflowMetadata?.escalated
+        ? 'escalated'
+        : 'success';
+
+    metrics.agentExecutionsTotal.inc({ workflow: workflowName });
+    metrics.agentExecutionDuration.observeSeconds(executionTime / 1000, { workflow: workflowName });
+    (executionFailed ? metrics.eventsFailedTotal : metrics.eventsProcessedTotal).inc({
+      provider: event.provider,
+    });
+
+    // Single structured line carrying the full field set an observability
+    // backend needs to reconstruct this execution (PRD §10) — everything
+    // else in this method logs its own narrower step.
+    log.info(
+      {
+        correlationId: envelope.correlationId,
+        causationId: envelope.causationId,
+        eventId: event.id,
+        provider: event.provider,
+        conversationId: event.conversationId,
+        actorId: event.actorId,
+        executionId,
+        workflow: workflowName,
+        durationMs: executionTime,
+        status,
+      },
+      'Agent execution completed'
+    );
+
+    // 5b. Persist workflow-state side effects the agent reported via metadata.
+    // Workflows stay pure over AgentContext; this is the one place DB writes
+    // for escalation/triage state happen.
+    if (workflowMetadata?.escalated && workflowMetadata.escalationReason) {
+      metrics.escalationsTotal.inc({ reason: workflowMetadata.escalationReason });
+      await this.stateStore.escalate(
+        event.conversationId,
+        workflowMetadata.escalationReason as EscalationReason
+      );
+    } else {
+      await this.stateStore.recordOutcome(
+        event.conversationId,
+        response.confidence,
+        DEFAULT_ESCALATION_POLICY.confidenceThreshold
+      );
+    }
+    if (workflowMetadata && 'triageStateUpdate' in workflowMetadata) {
+      await this.stateStore.saveTriageState(
+        event.conversationId,
+        workflowMetadata.triageStateUpdate ?? null
+      );
+    }
+    if (!executionFailed && workflowName === 'onboarding-workflow') {
+      await this.contributorProfileService.recordOnboarded(event.actorId);
+    }
 
     // 6. Format egress text via OutputAdapters
     const replyText = this.outputAdapters.format(event.provider, response);
 
-    console.log(`\n>>> [Runtime Execution Trace] <<<`);
-    console.log(`- Provider:       ${event.provider.toUpperCase()}`);
-    console.log(`- Conversation:   ${event.conversationId}`);
-    console.log(`- Actor:          ${event.actorId}`);
-    console.log(`- Agent:          ${agent.name}`);
-    console.log(`- LLM Provider:   ${this.llmProvider.name}`);
-    console.log(`- Memory Loaded:  ${memory.length} messages`);
-    console.log(`- Execution Time: ${executionTime}ms`);
-    console.log(`=================================\n`);
+    // Demo-mode trace only — console I/O here is expensive enough at volume
+    // to skew load-test measurements, so the harness (src/cli/load-test.ts)
+    // opts out via this flag. The structured `log.info` above carries the
+    // same information for real observability tooling.
+    if (process.env.LOAD_TEST_QUIET !== 'true') {
+      console.log(`\n>>> [Runtime Execution Trace] <<<`);
+      console.log(`- Provider:       ${event.provider.toUpperCase()}`);
+      console.log(`- Conversation:   ${event.conversationId}`);
+      console.log(`- Actor:          ${event.actorId}`);
+      console.log(`- Agent:          ${agent.name}`);
+      console.log(`- LLM Provider:   ${this.llmProvider.name}`);
+      console.log(`- Memory Loaded:  ${memory.length} messages`);
+      console.log(`- Execution Time: ${executionTime}ms`);
+      console.log(`=================================\n`);
+    }
 
     // 7. Egress Reply
     log.info('Publishing agent response to callback target');

@@ -2,7 +2,14 @@
 
 ## Sequence Trace
 
-The sequence diagram below maps the runtime stages when an issue is opened on a tracked repository:
+Issue Triage (#18) never auto-labels, auto-assigns, or auto-creates a GitHub
+issue. It collects the required fields (reproduction steps, logs, SDK
+version, OS, environment details) across turns and only _proposes_ an issue
+once complete — a maintainer confirms before any GitHub write happens (PRD
+§7 / §21, "prefer confirmation before external side effects"). The sequence
+below reflects that: intent classification and the WorkflowRouter dispatch
+to `TriageWorkflow`, which runs structural (regex-based, not LLM-only) field
+extraction against `IssueTriageState`, persisted per-conversation.
 
 ```mermaid
 sequenceDiagram
@@ -11,26 +18,31 @@ sequenceDiagram
     participant GH as Git Platform API
     participant GW as Event Gateway
     participant EN as Event Normalizer
-    participant OR as Orchestrator
-    participant RAG as Knowledge Base (RAG)
-    participant LLM as Model Provider Abstraction
+    participant MA as MaintainerAgent
+    participant IC as Intent Classifier
+    participant WR as WorkflowRouter
+    participant TW as TriageWorkflow
+    participant DB as Conversation State (triage_state)
 
-    Contributor->>GH: Open Issue (Title: "Bug in auth config")
+    Contributor->>GH: Open Issue ("The SDK crashes when I call connect()")
     GH->>GW: Inbound Webhook event
     GW->>EN: Normalize payload
-    EN->>OR: Dispatch Issue Event
+    EN->>MA: Dispatch Unified Event
 
-    OR->>RAG: Fetch matching document chunks (e.g. security policy, setup configs)
-    RAG-->>OR: Context chunks
+    MA->>IC: classify(text)
+    IC-->>MA: intent = bug_report, confidence
 
-    OR->>LLM: Compile triage prompt (Issue content + RAG context)
-    LLM-->>OR: Structured Output (Labels, Assignee, Suggested Comment)
+    MA->>WR: route(bug_report)
+    WR-->>MA: TriageWorkflow
 
-    par Update Git repository status
-        OR->>GH: Apply labels (e.g. "bug", "priority/high")
-        OR->>GH: Assign repository owners
-        OR->>GH: Post triage reply comment
+    MA->>TW: execute(context, classification)
+    TW->>DB: load prior IssueTriageState (if any)
+    TW->>TW: extract fields, compute missingFields
+    TW->>DB: save updated IssueTriageState
+
+    alt fields still missing
+        TW-->>Contributor: "Could you provide: SDK version, OS, logs, ..."
+    else all fields collected
+        TW-->>Contributor: "I have everything needed — reply to confirm, a maintainer will open the issue (not created automatically)"
     end
-
-    GH-->>Contributor: Show labels, assignments, and response comment
 ```

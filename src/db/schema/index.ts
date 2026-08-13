@@ -20,3 +20,4 @@ export * from './knowledge_sources.js';
 export * from './documents.js';
 export * from './document_chunks.js';
 export * from './embeddings.js';
+export * from './pending_deliveries.js';

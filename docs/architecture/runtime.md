@@ -1,5 +1,17 @@
 # Runtime Engine Lifecycles
 
+> **Note on accuracy:** this document describes the original, more
+> elaborate design (a generic `WorkflowTemplate`/`Execution State Manager`/
+> `Tool Router` runtime). What's actually implemented is narrower and
+> conversation-state-based rather than execution-record-based — see
+> [workflows.md](workflows.md) for the real routing (`WorkflowRouter` +
+> `MaintainerAgent`, not a generic orchestrator) and
+> [reliability.md](reliability.md) for the real retry/degradation behavior.
+> The `executions`/`execution_events`/`tool_calls` tables referenced below
+> exist in the schema but aren't populated by the current implementation —
+> conversation/escalation/triage state lives on `conversations` columns
+> instead (see `docs/implementation/remaining-work.md` for why).
+
 ## 1. Event Ingress Lifecycle
 
 - **Webhook Ingestion**: An incoming webhook hits `Event Gateway`.

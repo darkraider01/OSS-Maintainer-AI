@@ -13,8 +13,18 @@ import type {
 import type { ProviderKey } from '../unified-event.js';
 import { logger } from '../../config/logger.js';
 import { randomUUID } from 'crypto';
+import { RateLimiter } from '../../core/security/rate-limiter.js';
+import { metrics } from '../../core/observability/metrics.js';
+
+/** Generous enough for normal back-and-forth conversation; catches spam/abuse, not chattiness. */
+const ACTOR_RATE_LIMIT = { windowMs: 60_000, maxRequests: 20 };
+/** Higher than the per-actor limit — a busy thread has multiple actors, not one flooding it. */
+const CONVERSATION_RATE_LIMIT = { windowMs: 60_000, maxRequests: 40 };
 
 export class CommunicationService implements ICommunicationService {
+  private readonly actorLimiter = new RateLimiter(ACTOR_RATE_LIMIT);
+  private readonly conversationLimiter = new RateLimiter(CONVERSATION_RATE_LIMIT);
+
   constructor(
     private readonly deduplicationService: IDeduplicationService,
     private readonly conversationService: IConversationService,
@@ -30,6 +40,7 @@ export class CommunicationService implements ICommunicationService {
   ): Promise<EventEnvelope | null> {
     const log = logger.child({ correlationId, provider });
     log.info('Ingesting raw platform message');
+    metrics.eventsReceivedTotal.inc({ provider });
 
     const providerEventId = rawMessage.id;
     const eventId = `${provider}:${providerEventId}`;
@@ -37,6 +48,7 @@ export class CommunicationService implements ICommunicationService {
     // 1. Deduplication
     if (await this.deduplicationService.isDuplicate(eventId, correlationId)) {
       log.warn({ eventId }, 'Dropped duplicate event during ingestion');
+      metrics.deduplicatedEventsTotal.inc({ provider });
       return null;
     }
 
@@ -88,6 +100,26 @@ export class CommunicationService implements ICommunicationService {
       },
       correlationId
     );
+
+    // 3b. Rate limiting — per-actor and per-conversation, dropped the same
+    // way a duplicate is (no HTTP context this deep in the pipeline to
+    // return 429/Retry-After against; that happens at the webhook HTTP
+    // layer instead). Protects the LLM/DB/GitHub-egress work downstream from
+    // one spamming actor or a flooded thread, without touching provider-side
+    // ingress at all.
+    const actorLimit = this.actorLimiter.check(actorId);
+    if (!actorLimit.allowed) {
+      log.warn({ actorId }, 'Dropped event: actor exceeded rate limit');
+      return null;
+    }
+    const conversationLimit = this.conversationLimiter.check(conversationContext.conversationId);
+    if (!conversationLimit.allowed) {
+      log.warn(
+        { conversationId: conversationContext.conversationId },
+        'Dropped event: conversation exceeded rate limit'
+      );
+      return null;
+    }
 
     // 4. Create UnifiedEvent Model (Version 1)
     const eventType: EventType = rawMessage.eventType || 'MESSAGE_CREATED';

@@ -15,6 +15,12 @@ import { createGitHubAppClient } from './gateway/github/client.js';
 import type { GitHubClientLike } from './gateway/github/client.js';
 import { ensureGitHubBotActor } from './gateway/github/bot-identity.js';
 import { extractGitHubReplyTarget, postGitHubReply } from './gateway/github/egress.js';
+import { ResilientExecutor } from './core/resilience/resilient-executor.js';
+import { metrics } from './core/observability/metrics.js';
+import { PendingDeliveryStore } from './core/delivery/pending-delivery-store.js';
+import { DeliveryRecoveryWorker } from './core/delivery/delivery-recovery-worker.js';
+import type { Deliverer } from './core/delivery/delivery-recovery-worker.js';
+import type { ProviderKey } from './gateway/unified-event.js';
 import { createAuthRouter } from './web/auth-routes.js';
 import type { AuthRouter } from './web/auth-routes.js';
 import { GitHubOAuthClient } from './web/oauth/github-oauth.js';
@@ -52,6 +58,8 @@ export async function bootstrap(options?: { client?: any }): Promise<Runtime> {
 
   const client = options?.client || createCommClient();
   const bus = new EventBus();
+  const caspianEgressExecutor = new ResilientExecutor('caspian-egress');
+  const pendingDeliveryStore = new PendingDeliveryStore();
 
   const dedupService = new DeduplicationService();
   const convService = new ConversationService();
@@ -82,13 +90,48 @@ export async function bootstrap(options?: { client?: any }): Promise<Runtime> {
             );
             return;
           }
-          await postGitHubReply(githubClient!, target, text);
-          // eslint-disable-next-line no-console
-          console.log('→ GitHub comment posted');
+          try {
+            await postGitHubReply(githubClient!, target, text);
+            // eslint-disable-next-line no-console
+            console.log('→ GitHub comment posted');
+          } catch (error) {
+            // postIssueComment already exhausted its own in-process retries
+            // (ResilientExecutor) — this is a durable fallback, not a race
+            // with that retry logic (PRD §10: "don't lose the event").
+            logger.error(
+              { err: error, eventId: envelope.eventId },
+              'GitHub reply delivery failed after retries; queued for recovery'
+            );
+            await pendingDeliveryStore.enqueue({
+              provider: 'github',
+              conversationId: envelope.payload.conversationId,
+              target: target as unknown as Record<string, unknown>,
+              text,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
         };
       } else {
         envelope.respond = async (text: string) => {
-          await client.reply(envelope.payload.providerEventId, text);
+          metrics.providerRequestsTotal.inc({ provider: 'caspian' });
+          try {
+            await caspianEgressExecutor.execute(() =>
+              client.reply(envelope.payload.providerEventId, text)
+            );
+          } catch (error) {
+            metrics.providerFailuresTotal.inc({ provider: 'caspian' });
+            logger.error(
+              { err: error, eventId: envelope.eventId },
+              'Caspian reply delivery failed after retries; queued for recovery'
+            );
+            await pendingDeliveryStore.enqueue({
+              provider: envelope.payload.provider,
+              conversationId: envelope.payload.conversationId,
+              target: { providerEventId: envelope.payload.providerEventId },
+              text,
+              error: error instanceof Error ? error.message : String(error),
+            });
+          }
         };
       }
       await bus.publish(envelope as any);
@@ -146,6 +189,12 @@ export async function bootstrap(options?: { client?: any }): Promise<Runtime> {
     demoMode: env.DEMO_MODE,
     apiKey: env.LLM_API_KEY,
     provider: env.LLM_PROVIDER,
+    githubClient,
+    maintainerMentionConfig: {
+      github: env.MAINTAINER_GITHUB_USERNAME,
+      slack: env.MAINTAINER_SLACK_MENTION,
+      discord: env.MAINTAINER_DISCORD_MENTION,
+    },
   });
 
   // Registered before the agent-execution subscriber so the trace line prints first.
@@ -176,6 +225,7 @@ export async function bootstrap(options?: { client?: any }): Promise<Runtime> {
 
   const controller = new AbortController();
   let webhookServer: WebhookServer | undefined;
+  let stopRecoveryWorker: (() => void) | undefined;
 
   // Tests stop here: the transport is what needs a live gateway, not the wiring.
   if (env.NODE_ENV !== 'test' && !env.DEMO_MODE) {
@@ -198,6 +248,22 @@ export async function bootstrap(options?: { client?: any }): Promise<Runtime> {
         logger.error({ err: error }, 'Caspian listen loop stopped');
       });
     }
+
+    // Sweeps pending_deliveries for anything the in-process retries above
+    // couldn't land (PRD §10 durable retry). Same deliverers the live
+    // egress paths use, so recovery behaves identically to a fresh send.
+    const deliverers: Partial<Record<ProviderKey, Deliverer>> = {
+      ...(githubClient
+        ? {
+            github: async (target: Record<string, unknown>, text: string) => {
+              await postGitHubReply(githubClient, target as any, text);
+            },
+          }
+        : {}),
+      slack: (target, text) => client.reply((target as any).providerEventId, text),
+      discord: (target, text) => client.reply((target as any).providerEventId, text),
+    };
+    stopRecoveryWorker = new DeliveryRecoveryWorker(pendingDeliveryStore, deliverers).start();
   }
 
   return {
@@ -207,6 +273,7 @@ export async function bootstrap(options?: { client?: any }): Promise<Runtime> {
     webhookServer,
     shutdown: async () => {
       controller.abort();
+      stopRecoveryWorker?.();
       await webhookServer?.close();
       logger.info('Shutdown complete');
     },

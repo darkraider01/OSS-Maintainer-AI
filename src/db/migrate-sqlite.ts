@@ -10,7 +10,8 @@ export function runSqliteMigrations() {
       "id" TEXT PRIMARY KEY,
       "type" TEXT NOT NULL,
       "created_at" TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
-      "updated_at" TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+      "updated_at" TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      "onboarded_at" TEXT
     );
 
     CREATE TABLE IF NOT EXISTS "actor_accounts" (
@@ -37,7 +38,11 @@ export function runSqliteMigrations() {
       "id" TEXT PRIMARY KEY,
       "repository_id" TEXT,
       "created_at" TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
-      "updated_at" TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+      "updated_at" TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      "escalated_at" TEXT,
+      "escalation_reason" TEXT,
+      "failure_streak" INTEGER DEFAULT 0 NOT NULL,
+      "triage_state" TEXT
     );
 
     CREATE TABLE IF NOT EXISTS "conversation_channel_mappings" (
@@ -49,6 +54,14 @@ export function runSqliteMigrations() {
       "metadata" TEXT,
       "created_at" TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
     );
+
+    -- Matches the pg schema's conv_channel_mappings_idx (missing here until
+    -- now — without it, two near-simultaneous resolveOrCreate() calls for the
+    -- same external thread could each pass the "does a mapping exist?" check
+    -- and insert a duplicate row, so a later lookup nondeterministically
+    -- returns either conversation. See ConversationService.resolveOrCreate().
+    CREATE UNIQUE INDEX IF NOT EXISTS "conv_channel_mappings_idx"
+      ON "conversation_channel_mappings" ("provider", "channel_type", "external_thread_id");
 
     CREATE TABLE IF NOT EXISTS "messages" (
       "id" TEXT PRIMARY KEY,
@@ -108,6 +121,20 @@ export function runSqliteMigrations() {
       "token_count" INTEGER NOT NULL,
       "checksum" TEXT NOT NULL,
       "created_at" TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS "pending_deliveries" (
+      "id" TEXT PRIMARY KEY,
+      "provider" TEXT NOT NULL,
+      "conversation_id" TEXT NOT NULL,
+      "target" TEXT NOT NULL,
+      "text" TEXT NOT NULL,
+      "status" TEXT DEFAULT 'pending' NOT NULL,
+      "attempts" INTEGER DEFAULT 0 NOT NULL,
+      "next_attempt_at" TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      "last_error" TEXT,
+      "created_at" TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL,
+      "updated_at" TEXT DEFAULT CURRENT_TIMESTAMP NOT NULL
     );
   `;
 

@@ -1,5 +1,11 @@
 # Platform Integrations & Ingress Routing
 
+> **Note on accuracy:** the core Caspian-ingress description below is
+> accurate. The Jira example under "Adding a New Platform Integration" is
+> illustrative, not built — live today: GitHub (direct, bypasses Caspian —
+> see the README's "GitHub Integration" section), Slack, and Discord (both
+> via Caspian). Email/Telegram/Jira/Linear/Teams are schema-ready, not wired.
+
 ## Decoupled Platform Integrations
 
 GitHub is only the first integration. The architecture is designed to support GitLab, Slack, Discord, Email, Jira, and Linear without requiring schema modifications to core domain tables.

@@ -19,7 +19,16 @@ Welcome to the **OSS-Maintainer-AI** architectural specification. This documenta
 
 ### 3. Service Sub-Systems
 
-- [Runtime Engine](runtime.md) — Core event lifecycles, states, and execution loops.
+- [Runtime Engine](runtime.md) — Core event lifecycles, states, and execution loops. _(Original design; see the accuracy note at the top — [workflows.md](workflows.md) describes what's actually implemented.)_
 - [Persistence Layer](persistence.md) — Relational datastore schema, migrations, SQLite fallbacks, and pgvector embeddings.
 - [Platform Integrations](integrations.md) — How the Integration Adapter Layer keeps repository logic channel-independent.
-- [Observability & Telemetry](deployment.md) — Deployment configurations and structured logging.
+- [Deployment Topology](deployment.md) — Infrastructure diagram. _(Original target topology; see the accuracy note at the top.)_
+
+### 4. Maintainer Workflows & Platform Concerns (current implementation)
+
+- [Maintainer Workflows](workflows.md) — Issue Triage, Onboarding, Escalation, PR Summaries: routing, and what each actually does.
+- [Reliability](reliability.md) — Retry/circuit-breaker + the durable delivery-retry queue.
+- [Security](security.md) — Authentication posture, rate limiting, secret hygiene.
+- [Observability](observability.md) — Structured logging, metrics, tracing, Issue Analytics.
+- [Configuration Reference](../configuration.md) — Every env var, grouped by feature.
+- [Load & Scale Test Report](../performance/load-test-report.md) — Measured throughput/latency, clearly separated from targets and limitations.

@@ -56,3 +56,6 @@ export const memoryScopeEnum = pgEnum('memory_scope', ['short_term', 'long_term'
 
 // Knowledge reference file type
 export const knowledgeSourceTypeEnum = pgEnum('knowledge_source_type', ['file', 'website', 'doc']);
+
+// Durable egress retry queue state (#27)
+export const deliveryStatusEnum = pgEnum('delivery_status', ['pending', 'delivered', 'failed']);

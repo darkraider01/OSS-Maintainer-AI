@@ -98,6 +98,22 @@ const envSchema = z.object({
     .transform((value) => value.toLowerCase() === 'true'),
   LLM_PROVIDER: z.string().default('gemini'),
   LLM_API_KEY: z.string().optional(),
+
+  /**
+   * Escalation notification (#20): who gets @-mentioned in the escalation
+   * reply itself, per provider. There's no cross-conversation "send to a
+   * different channel" capability in this app's Caspian/GitHub client
+   * abstractions today, so a real, verifiable notification means tagging a
+   * human in the same thread — which actually pages them via that
+   * platform's native mention notification, not a rebranded log line. Any
+   * left unset means that provider's escalations stay log-only, same as
+   * before.
+   */
+  MAINTAINER_GITHUB_USERNAME: z.string().optional(),
+  /** Slack's own mention syntax, e.g. `<@U0123ABC>` — not a plain username. */
+  MAINTAINER_SLACK_MENTION: z.string().optional(),
+  /** Discord's own mention syntax, e.g. `<@123456789012345678>`. */
+  MAINTAINER_DISCORD_MENTION: z.string().optional(),
 });
 
 export type Env = z.infer<typeof envSchema>;

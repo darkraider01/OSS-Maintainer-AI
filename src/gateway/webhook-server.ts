@@ -7,9 +7,35 @@ import type { GitHubGateway, GitHubWebhookResult } from './github-gateway.js';
 import { GitHubWebhookVerificationError } from './github/webhook-signature.js';
 import type { WebhookResult } from './caspian-gateway.js';
 import type { AuthRouter } from '../web/auth-routes.js';
+import { RateLimiter } from '../core/security/rate-limiter.js';
+import { metrics } from '../core/observability/metrics.js';
+import { IssueAnalyticsService } from '../core/analytics/issue-analytics-service.js';
 
 /** Deliveries are small; anything larger is a mistake or an attack. */
 const MAX_BODY_BYTES = 1_048_576;
+
+/** Generous — real webhook providers can legitimately burst on a busy repo/workspace. */
+const WEBHOOK_RATE_LIMIT = { windowMs: 10_000, maxRequests: 30 };
+/** Stricter — the account-linking flow is human-driven, not provider-driven. */
+const AUTH_RATE_LIMIT = { windowMs: 60_000, maxRequests: 20 };
+
+/** Best-effort client IP: trusts X-Forwarded-For's first hop when present (reverse-proxy deployments), else the socket. */
+function getClientIp(request: IncomingMessage): string {
+  const forwarded = request.headers['x-forwarded-for'];
+  const first = Array.isArray(forwarded) ? forwarded[0] : forwarded?.split(',')[0];
+  return first?.trim() || request.socket.remoteAddress || 'unknown';
+}
+
+function sendRateLimited(response: ServerResponse, retryAfterMs: number): void {
+  const retryAfterSeconds = Math.max(1, Math.ceil(retryAfterMs / 1000));
+  const payload = JSON.stringify({ error: 'rate_limited' });
+  response.writeHead(429, {
+    'Content-Type': 'application/json',
+    'Content-Length': Buffer.byteLength(payload),
+    'Retry-After': String(retryAfterSeconds),
+  });
+  response.end(payload);
+}
 
 export interface GitHubRouteOptions {
   gateway: GitHubGateway;
@@ -25,6 +51,15 @@ export interface WebhookServerOptions {
   github?: GitHubRouteOptions;
   /** Optional third route: the account-linking dashboard shares this HTTP server/port too. */
   auth?: AuthRouter;
+  /**
+   * Prometheus scrape endpoint. Unauthenticated by design, like the rest of
+   * this app's routes (no application-API auth layer exists to hang this
+   * off) — deploy behind network-level access control (VPC/firewall) if the
+   * metric names/values shouldn't be publicly visible.
+   */
+  metricsPath?: string;
+  /** Issue Analytics (#24) JSON endpoint — `?since=YYYY-MM-DD`, defaults to 30 days back. Same unauthenticated-by-default posture as metricsPath. */
+  analyticsPath?: string;
 }
 
 export interface WebhookServer {
@@ -119,7 +154,26 @@ async function handleDelivery<T>(
  * and point it at `path`; the same secret must be in `CASPIAN_WEBHOOK_SECRET`.
  */
 export function createWebhookServer(options: WebhookServerOptions): Promise<WebhookServer> {
-  const { gateway, port, path, healthPath = '/healthz', github, auth } = options;
+  const {
+    gateway,
+    port,
+    path,
+    healthPath = '/healthz',
+    github,
+    auth,
+    metricsPath = '/metrics',
+    analyticsPath = '/analytics',
+  } = options;
+
+  // Per-IP+provider — cheap to check before the expensive parts (signature
+  // verification, DB writes) so a flooding source fails fast (PRD §10:
+  // "return HTTP 429/Retry-After where appropriate", "don't break internal
+  // event processing" — this only guards the HTTP edge, not the event bus).
+  const caspianLimiter = new RateLimiter(WEBHOOK_RATE_LIMIT);
+  const githubLimiter = new RateLimiter(WEBHOOK_RATE_LIMIT);
+  const authLimiter = new RateLimiter(AUTH_RATE_LIMIT);
+  const analyticsLimiter = new RateLimiter(AUTH_RATE_LIMIT);
+  const analyticsService = new IssueAnalyticsService();
 
   const server = createServer((request, response) => {
     const url = request.url ?? '/';
@@ -130,10 +184,46 @@ export function createWebhookServer(options: WebhookServerOptions): Promise<Webh
       return;
     }
 
+    if (request.method === 'GET' && pathname === metricsPath) {
+      const body = metrics.render();
+      response.writeHead(200, {
+        'Content-Type': 'text/plain; version=0.0.4; charset=utf-8',
+        'Content-Length': Buffer.byteLength(body),
+      });
+      response.end(body);
+      return;
+    }
+
+    if (request.method === 'GET' && pathname === analyticsPath) {
+      const limit = analyticsLimiter.check(getClientIp(request));
+      if (!limit.allowed) {
+        sendRateLimited(response, limit.retryAfterMs);
+        return;
+      }
+      const requestUrl = new URL(url, 'http://localhost');
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+        .toISOString()
+        .slice(0, 10);
+      const since = requestUrl.searchParams.get('since') || thirtyDaysAgo;
+      analyticsService
+        .summarize(since)
+        .then((summary) => sendJson(response, 200, summary))
+        .catch((error: unknown) => {
+          logger.error({ err: error }, 'Issue analytics query failed');
+          sendJson(response, 500, { error: 'internal_error' });
+        });
+      return;
+    }
+
     if (pathname === path) {
       if (request.method !== 'POST') {
         response.setHeader('Allow', 'POST');
         sendJson(response, 405, { error: 'method_not_allowed' });
+        return;
+      }
+      const limit = caspianLimiter.check(getClientIp(request));
+      if (!limit.allowed) {
+        sendRateLimited(response, limit.retryAfterMs);
         return;
       }
       void handleDelivery<WebhookResult>(
@@ -151,6 +241,11 @@ export function createWebhookServer(options: WebhookServerOptions): Promise<Webh
         sendJson(response, 405, { error: 'method_not_allowed' });
         return;
       }
+      const limit = githubLimiter.check(getClientIp(request));
+      if (!limit.allowed) {
+        sendRateLimited(response, limit.retryAfterMs);
+        return;
+      }
       void handleDelivery<GitHubWebhookResult>(
         request,
         response,
@@ -161,6 +256,11 @@ export function createWebhookServer(options: WebhookServerOptions): Promise<Webh
     }
 
     if (auth) {
+      const limit = authLimiter.check(getClientIp(request));
+      if (!limit.allowed) {
+        sendRateLimited(response, limit.retryAfterMs);
+        return;
+      }
       auth
         .handle(request, response, pathname)
         .then((handled) => {

@@ -6,6 +6,9 @@ import type {
   GitHubComment,
   ContributorActivity,
   RepositoryDoc,
+  GoodFirstIssue,
+  PullRequestFileChange,
+  ReleaseNoteItem,
 } from '../../src/gateway/github/client.js';
 
 export function inboundMessage(overrides: Partial<InboundMessage> = {}): InboundMessage {
@@ -201,7 +204,8 @@ export function pullRequestReviewPayload(
     review: {
       id: 300001,
       body: 'Looks good overall, one nit on the path join helper.',
-      html_url: 'https://github.com/darkraider01/OSS-Maintainer-AI/pull/77#pullrequestreview-300001',
+      html_url:
+        'https://github.com/darkraider01/OSS-Maintainer-AI/pull/77#pullrequestreview-300001',
       submitted_at: '2026-08-10T11:30:00Z',
       user: githubSender({ id: 7000, login: 'darkraider01' }),
     },
@@ -243,7 +247,14 @@ export interface FakeGitHubClient extends GitHubClientLike {
 /** Stand-in for `GitHubAppClient` — records posted comments, resolves seeded users. */
 export function fakeGitHubClient(
   users: GitHubUser[] = [],
-  options: { activity?: Record<string, ContributorActivity>; docs?: RepositoryDoc[] } = {}
+  options: {
+    activity?: Record<string, ContributorActivity>;
+    docs?: RepositoryDoc[];
+    goodFirstIssues?: GoodFirstIssue[];
+    pullRequestFiles?: PullRequestFileChange[];
+    mergedPullRequests?: ReleaseNoteItem[];
+    closedIssues?: ReleaseNoteItem[];
+  } = {}
 ): FakeGitHubClient {
   const comments: FakeGitHubClient['comments'] = [];
   const userMap = new Map(users.map((u) => [u.login.toLowerCase(), u]));
@@ -268,6 +279,18 @@ export function fakeGitHubClient(
     },
     async getRepositoryDocs() {
       return options.docs ?? [];
+    },
+    async listGoodFirstIssues() {
+      return options.goodFirstIssues ?? [];
+    },
+    async listPullRequestFiles() {
+      return options.pullRequestFiles ?? [];
+    },
+    async listMergedPullRequests() {
+      return options.mergedPullRequests ?? [];
+    },
+    async listClosedIssues() {
+      return options.closedIssues ?? [];
     },
   };
 }

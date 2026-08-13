@@ -4,6 +4,8 @@ import type {
   RepositoryContext,
 } from '../../gateway/adapters/communication-types.js';
 import type { PromptContext } from '../agent/agent-types.js';
+import type { ContributorProfile } from '../contributor/contributor-profile-types.js';
+import { formatContributorProfileForPrompt } from '../contributor/contributor-profile-service.js';
 
 export class PromptBuilder {
   build(
@@ -17,7 +19,8 @@ export class PromptBuilder {
       role: 'user' | 'assistant';
       content: string;
       conversationId: string;
-    }> = []
+    }> = [],
+    contributorProfile: ContributorProfile | null = null
   ): PromptContext {
     const systemPrompt = [
       `You are the OSS Maintainer AI, a helpful agent answering project threads.`,
@@ -58,6 +61,8 @@ export class PromptBuilder {
     const userPrompt = [
       `New Message from ${actorDisplayName}:`,
       `> ${event.text || '(empty message)'}`,
+      '',
+      formatContributorProfileForPrompt(contributorProfile),
       '',
       profilesPrompt,
       '',

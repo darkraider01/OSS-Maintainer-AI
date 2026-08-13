@@ -10,6 +10,8 @@ export const actors = pgTable('actors', {
   type: actorTypeEnum('type').notNull(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow().notNull(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow().notNull(),
+  /** Last time OnboardingWorkflow ran for this actor — feeds the contributor profile's onboarding state. */
+  onboardedAt: timestamp('onboarded_at', { withTimezone: true }),
 });
 
 export const actorsRelations = relations(actors, ({ many }) => ({

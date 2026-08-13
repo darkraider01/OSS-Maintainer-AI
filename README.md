@@ -20,6 +20,7 @@ pnpm demo
 ```
 
 To run individual provider mocks:
+
 - `pnpm demo:github` — replays a GitHub Issue thread.
 - `pnpm demo:slack` — replays a Slack Mention thread.
 
@@ -28,35 +29,42 @@ To run individual provider mocks:
 ## 🚀 Executive Summary (1-Minute Read)
 
 ### The Problem
+
 Open-source maintainers face severe burnout. Triaging issues, responding to repetitive queries, and managing onboarding friction across multiple fragmented channels (Slack, Discord, GitHub, Email) eats up hours of productive coding time.
 
 ### The Solution: OSS-Maintainer-AI
+
 OSS-Maintainer-AI is a platform-independent, context-aware co-maintainer agent that unifies these channels into a single execution stream. It acts as an automated assistant to maintain conversations, triage bug reports, and answer questions.
 
 ### Why Caspian Matters
+
 Caspian acts as the unified communication backbone of the system. Instead of writing, configuring, and securing custom API clients, webhooks, signature verification logic, and polling loops for 10 different platforms, we write **one adapter per channel** that translates to/from Caspian format. Caspian coordinates real-time tunnels automatically.
 
 ### Why This is Different from a Normal Chatbot
+
 Traditional chatbots are hardcoded to a specific chat API (e.g., Slackbot SDK) and lack unified cross-channel identity and context. OSS-Maintainer-AI unifies identity and context under a single database actor model:
-* If you tell the bot your name on Slack, it remembers it when you message it on Discord.
-* If you define custom variables (`x = 5`) on one channel, the context carries over to all other channels in real-time.
+
+- If you tell the bot your name on Slack, it remembers it when you message it on Discord.
+- If you define custom variables (`x = 5`) on one channel, the context carries over to all other channels in real-time.
 
 ---
 
 ## 🖥️ Live Demo
 
 The project has been demonstrated live on the following channels:
-* **Slack**
-* **Discord**
-* **GitHub** — a real, direct GitHub App integration (see "🐙 GitHub Integration" below); it bypasses Caspian rather than going through it, since GitHub isn't a Caspian channel today.
+
+- **Slack**
+- **Discord**
+- **GitHub** — a real, direct GitHub App integration (see "🐙 GitHub Integration" below); it bypasses Caspian rather than going through it, since GitHub isn't a Caspian channel today.
 
 Slack and Discord are connected **simultaneously** through Caspian and share:
-* **One Communication Layer** to normalize message routing
-* **One UnifiedEvent model** representing any incoming platform action
-* **One Conversation Service** to manage and track thread sessions
-* **One Identity Service** to merge cross-platform usernames into a single actor record
-* **One Maintainer Agent** responding with consistent instructions
-* **One memory/context pipeline** resolving cross-channel thread history
+
+- **One Communication Layer** to normalize message routing
+- **One UnifiedEvent model** representing any incoming platform action
+- **One Conversation Service** to manage and track thread sessions
+- **One Identity Service** to merge cross-platform usernames into a single actor record
+- **One Maintainer Agent** responding with consistent instructions
+- **One memory/context pipeline** resolving cross-channel thread history
 
 > [!NOTE]
 > The screenshots in this repository demonstrate the exact same running maintainer agent instance responding on both Slack and Discord, recalling variables and context across platforms.
@@ -123,12 +131,13 @@ Discord ───── Caspian ────────┤
 ```
 
 ### Ingress & Egress Routing
-* **GitHub Ingress:** `GitHubGateway` (`src/gateway/github-gateway.ts`) verifies the `X-Hub-Signature-256` HMAC, reads `X-GitHub-Event`/`X-GitHub-Delivery`, and normalizes `issues.opened`, `issue_comment.created`, `pull_request.opened`, `pull_request_review.submitted`, and `pull_request_review_comment.created` (`src/gateway/adapters/github.ts`) into the same duck-typed message shape `CommunicationService.ingest()` already accepts from Slack/Discord.
-* **Deduplication:** Reuses the existing `DeduplicationService`, keyed on `X-GitHub-Delivery` — no second dedup system.
-* **Self-event protection:** Reuses `IdentityService.isSelfEvent()` — the GitHub App's own bot identity is seeded as `actors.type = 'bot'` at startup so the agent never replies to its own comments.
-* **GitHub Egress:** The formatted `AgentResponse` goes through the existing `GitHubResponseAdapter`, then a GitHub App-authenticated Octokit client (`src/gateway/github/client.ts`) posts the comment — the `MaintainerAgent` never talks to GitHub directly.
-* **Slack / Discord Ingress & Egress:** Unchanged — handled entirely through Caspian's unified connection broker.
-* **Zero Platform Logic in the core:** Both ingress paths converge into the same `UnifiedEvent` pipeline before the agent ever sees them.
+
+- **GitHub Ingress:** `GitHubGateway` (`src/gateway/github-gateway.ts`) verifies the `X-Hub-Signature-256` HMAC, reads `X-GitHub-Event`/`X-GitHub-Delivery`, and normalizes `issues.opened`, `issue_comment.created`, `pull_request.opened`, `pull_request_review.submitted`, and `pull_request_review_comment.created` (`src/gateway/adapters/github.ts`) into the same duck-typed message shape `CommunicationService.ingest()` already accepts from Slack/Discord.
+- **Deduplication:** Reuses the existing `DeduplicationService`, keyed on `X-GitHub-Delivery` — no second dedup system.
+- **Self-event protection:** Reuses `IdentityService.isSelfEvent()` — the GitHub App's own bot identity is seeded as `actors.type = 'bot'` at startup so the agent never replies to its own comments.
+- **GitHub Egress:** The formatted `AgentResponse` goes through the existing `GitHubResponseAdapter`, then a GitHub App-authenticated Octokit client (`src/gateway/github/client.ts`) posts the comment — the `MaintainerAgent` never talks to GitHub directly.
+- **Slack / Discord Ingress & Egress:** Unchanged — handled entirely through Caspian's unified connection broker.
+- **Zero Platform Logic in the core:** Both ingress paths converge into the same `UnifiedEvent` pipeline before the agent ever sees them.
 
 ### Enabling it
 
@@ -170,14 +179,14 @@ This is a real integration, not a simulated one — running it live requires you
 
 ## 🔗 Cross-Channel Identity Linking
 
-Each provider identity is resolved independently — `IdentityService.resolveActor()` keys strictly on `(provider, providerUserId)`, so the same human commenting on GitHub and messaging on Discord gets two unrelated actor records by default, and the cross-channel memory `WorkflowEngine` already builds (recent history from *other* conversations the same actor participated in) never bridges providers on its own.
+Each provider identity is resolved independently — `IdentityService.resolveActor()` keys strictly on `(provider, providerUserId)`, so the same human commenting on GitHub and messaging on Discord gets two unrelated actor records by default, and the cross-channel memory `WorkflowEngine` already builds (recent history from _other_ conversations the same actor participated in) never bridges providers on its own.
 
 To fix that, there's an optional account-linking dashboard: a human signs in with GitHub, Slack, and Discord, and every identity they authenticate with gets tied to one shared actor.
 
-* **How it works:** visiting the dashboard with no session starts a "Sign in with X" OAuth flow for whichever provider you click first — that establishes the shared actor. Signing in with a second or third provider in the same browser session either attaches that identity to the actor, or, if it was already a separate actor from prior activity, **merges** the two: its other linked accounts and message history move over, and the leftover actor is deleted.
-* **No passwords, no stored tokens.** Provider access tokens are used once, server-side, to fetch `(id, username, avatar)`, then discarded. The security property is the same one "Sign in with X" account-linking uses everywhere: a merge only happens when the same browser, holding a short-lived session cookie, completes a real OAuth round-trip for the account being linked.
-* **Enable it:** set `AUTH_ENABLED=true` plus `AUTH_BASE_URL` and OAuth client id/secret pairs for GitHub, Slack, and Discord — see [`.env.example`](.env.example). It shares the same webhook HTTP server/port as the GitHub and Caspian routes; visit `<AUTH_BASE_URL>/dashboard`. Fully optional — everything else starts normally when it's left off.
-* **Contributor history:** the dashboard also shows a small stats line per linked identity — messages sent (from the actor's own message history) plus, when `GITHUB_STATS_REPO=owner/repo` is set, issues opened and PRs opened in that repo (via the GitHub Search API). Degrades gracefully to message-count-only when GitHub isn't linked or configured.
+- **How it works:** visiting the dashboard with no session starts a "Sign in with X" OAuth flow for whichever provider you click first — that establishes the shared actor. Signing in with a second or third provider in the same browser session either attaches that identity to the actor, or, if it was already a separate actor from prior activity, **merges** the two: its other linked accounts and message history move over, and the leftover actor is deleted.
+- **No passwords, no stored tokens.** Provider access tokens are used once, server-side, to fetch `(id, username, avatar)`, then discarded. The security property is the same one "Sign in with X" account-linking uses everywhere: a merge only happens when the same browser, holding a short-lived session cookie, completes a real OAuth round-trip for the account being linked.
+- **Enable it:** set `AUTH_ENABLED=true` plus `AUTH_BASE_URL` and OAuth client id/secret pairs for GitHub, Slack, and Discord — see [`.env.example`](.env.example). It shares the same webhook HTTP server/port as the GitHub and Caspian routes; visit `<AUTH_BASE_URL>/dashboard`. Fully optional — everything else starts normally when it's left off.
+- **Contributor history:** the dashboard also shows a small stats line per linked identity — messages sent (from the actor's own message history) plus, when `GITHUB_STATS_REPO=owner/repo` is set, issues opened and PRs opened in that repo (via the GitHub Search API). Degrades gracefully to message-count-only when GitHub isn't linked or configured.
 
 ---
 
@@ -185,25 +194,77 @@ To fix that, there's an optional account-linking dashboard: a human signs in wit
 
 `pnpm run ingest:docs owner/repo` pulls a repository's README and every `.md`/`.mdx`/`.txt` file under `/docs`, chunks each document on paragraph boundaries, embeds every chunk, and stores the result following the hierarchical schema already defined in [`docs/architecture/persistence.md`](docs/architecture/persistence.md): `knowledge_sources` → `documents` → `document_chunks` → `embeddings` (a real `pgvector` column in Postgres; JSON-serialized text in SQLite dev — same code, no dialect branching).
 
-* **Idempotent:** each document's content is checksummed; unchanged documents are skipped entirely on re-runs (no re-chunk, no re-embed, no wasted API calls) — safe to run on a schedule or after every push.
-* **Embeddings:** `MockLLMProvider` generates a deterministic fake vector (demo mode, tests — no API key needed); `LiveLLMProvider` calls Gemini's embedding endpoint with `outputDimensionality: 1536` to match the schema's fixed vector size.
-* **Not included:** wiring these embeddings into the agent's actual replies (retrieval-augmented prompting) — this pipeline stores them; using them for retrieval is a natural follow-up, not built here.
-* Uses the same GitHub App client as the direct GitHub channel above. Works out of the box on public repos with the App's existing permissions; private repos may need **Contents: Read** added under the App's permissions if it fails with a 403.
+- **Idempotent:** each document's content is checksummed; unchanged documents are skipped entirely on re-runs (no re-chunk, no re-embed, no wasted API calls) — safe to run on a schedule or after every push.
+- **Embeddings:** `MockLLMProvider` generates a deterministic fake vector (demo mode, tests — no API key needed); `LiveLLMProvider` calls Gemini's embedding endpoint with `outputDimensionality: 1536` to match the schema's fixed vector size.
+- **Retrieval:** the agent actually queries these embeddings — general Q&A can call a real `search_documentation` LLM tool (Gemini function-calling) that does in-app cosine similarity over what this pipeline stored. See [Maintainer Workflows](docs/architecture/workflows.md) for how.
+- Uses the same GitHub App client as the direct GitHub channel above. Works out of the box on public repos with the App's existing permissions; private repos may need **Contents: Read** added under the App's permissions if it fails with a 403.
+
+---
+
+## 🧠 Maintainer Workflows
+
+Beyond answering questions, the agent handles four maintainer-specific
+flows through one `MaintainerAgent` — no separate bot per workflow:
+
+- **Issue Triage** — detects a bug report, asks for whatever's missing
+  (repro steps, logs, SDK version, OS, environment), multi-turn. Never
+  creates a GitHub issue automatically — it proposes one once complete and
+  waits for a maintainer to confirm.
+- **Contributor Onboarding** — detects "how do I start contributing?" and
+  answers from the repo's real README/CONTRIBUTING.md/`good first issue`
+  list, live. Says so explicitly if there's nothing to find, rather than
+  inventing setup steps.
+- **Human Escalation** — sensitive topics, repeated failure, or low
+  classification confidence hand the conversation to a maintainer (real
+  @-mention if one's configured) and the agent stops auto-replying on that
+  thread until a human clears it.
+- **PR Summaries** — auto-triggers when a PR opens, grounded in the actual
+  changed-file diff: objective, changes, related issues, risks, review
+  focus.
+
+Full detail, including the routing diagram: [docs/architecture/workflows.md](docs/architecture/workflows.md).
+
+### Nice-to-have features
+
+Contributor Profiles (connected accounts, message history, onboarding
+state — factual, not scored), Release Notes generation
+(`pnpm run release-notes owner/repo`, categorized from real merged
+PRs/closed issues), and Issue Analytics (`GET /analytics`, historical
+escalation rate / time-to-first-response from the database) round out the
+maintainer toolset. None of these gate the core workflows above.
+
+---
+
+## 🛡️ Production Readiness
+
+- **Reliability** — bounded retry + circuit breaker on every external call
+  (LLM, GitHub, Caspian), plus a durable retry queue so a reply that fails
+  after in-process retries isn't lost, just delayed. [docs/architecture/reliability.md](docs/architecture/reliability.md)
+- **Security** — webhook signature verification, rate limiting (per-IP at
+  the HTTP edge, per-actor/per-conversation at ingestion), and an audited,
+  test-enforced secret-hygiene policy. [docs/architecture/security.md](docs/architecture/security.md)
+- **Observability** — structured logs correlated end to end, a
+  `GET /metrics` Prometheus endpoint, and `GET /analytics` for historical
+  issue/escalation numbers. [docs/architecture/observability.md](docs/architecture/observability.md)
+- **Performance** — a repeatable load-test harness (`pnpm run load-test`)
+  with measured throughput/latency clearly separated from targets and
+  limitations — no unearned availability claims. [docs/performance/load-test-report.md](docs/performance/load-test-report.md)
+- **Configuration** — every env var, grouped by feature, in one reference. [docs/configuration.md](docs/configuration.md)
 
 ---
 
 ## ⚡ Supported Providers
 
-| Channel | Status | Details |
-| :--- | :--- | :--- |
-| **Slack** | 🟢 Live | Verified live and fully operational, via Caspian. |
-| **Discord** | 🟢 Live | Verified live and fully operational, via Caspian. |
-| **GitHub** | 🟢 Live (Direct) | Real GitHub App webhook ingress + Octokit egress — bypasses Caspian (not a Caspian channel today). Set `GITHUB_ENABLED=true` to turn it on. |
-| **Email** | 🟡 Architecture Ready | Adapter schema ready. |
-| **Telegram** | 🟡 Architecture Ready | Adapter schema ready. |
-| **Jira** | 🟡 Architecture Ready | Adapter schema ready. |
-| **Linear** | 🟡 Architecture Ready | Adapter schema ready. |
-| **Microsoft Teams** | 🟡 Architecture Ready | Adapter schema ready. |
+| Channel             | Status                | Details                                                                                                                                     |
+| :------------------ | :-------------------- | :------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Slack**           | 🟢 Live               | Verified live and fully operational, via Caspian.                                                                                           |
+| **Discord**         | 🟢 Live               | Verified live and fully operational, via Caspian.                                                                                           |
+| **GitHub**          | 🟢 Live (Direct)      | Real GitHub App webhook ingress + Octokit egress — bypasses Caspian (not a Caspian channel today). Set `GITHUB_ENABLED=true` to turn it on. |
+| **Email**           | 🟡 Architecture Ready | Adapter schema ready.                                                                                                                       |
+| **Telegram**        | 🟡 Architecture Ready | Adapter schema ready.                                                                                                                       |
+| **Jira**            | 🟡 Architecture Ready | Adapter schema ready.                                                                                                                       |
+| **Linear**          | 🟡 Architecture Ready | Adapter schema ready.                                                                                                                       |
+| **Microsoft Teams** | 🟡 Architecture Ready | Adapter schema ready.                                                                                                                       |
 
 ---
 
@@ -305,9 +366,10 @@ sequenceDiagram
 
 ## ⚖️ Why This Architecture Scales
 
-Unifying communication under Caspian and the `UnifiedEvent` model creates an incredibly scalable codebase. 
+Unifying communication under Caspian and the `UnifiedEvent` model creates an incredibly scalable codebase.
 
 Adding a new communication provider (e.g., Teams or Jira) only requires:
+
 1. **A provider adapter:** Normalizes the platform's incoming message JSON to a `UnifiedEvent`.
 2. **Ingress wiring:** Registering the channel webhook path or polling loop.
 3. **Egress wiring:** Adding formatting logic to format replies back to the channel.
@@ -319,9 +381,10 @@ The core cognitive engines—**Maintainer Agent, Workflow Engine, Memory pipelin
 ## 🛠️ Getting Started
 
 ### Prerequisites
-* Node.js (v18+)
-* pnpm (v11+)
-* PostgreSQL (with `pgvector`) or SQLite (default fallback for zero-config)
+
+- Node.js (v18+)
+- pnpm (v11+)
+- PostgreSQL (with `pgvector`) or SQLite (default fallback for zero-config)
 
 ### Installation
 
@@ -335,6 +398,7 @@ pnpm install
 ```
 
 ### Configuration & Migrations
+
 1. Copy the environment template:
    ```bash
    cp .env.example .env
@@ -349,9 +413,13 @@ pnpm install
 ```bash
 pnpm run dev                    # Run the live server locally
 pnpm run caspian:connect-github # Provision GitHub as a Caspian channel (not used by the direct integration below)
+pnpm run ingest:docs owner/repo # Embed a repo's docs for the search_documentation tool
+pnpm run release-notes owner/repo --since=2026-01-01  # Generate categorized release notes
+pnpm run load-test -- --conversations=1000 --concurrency=50  # Repeatable load-test harness
 pnpm run build                  # Compile source code to JS
 pnpm run test                   # Run unit tests
 pnpm run lint                   # Check code style and linter errors
+pnpm run typecheck              # Type-check without emitting
 ```
 
 For the real, direct GitHub App integration (webhook ingress + Octokit egress, bypassing Caspian), see "🐙 GitHub Integration" above.
@@ -361,9 +429,10 @@ For the real, direct GitHub App integration (webhook ingress + Octokit egress, b
 ## 🤝 Contributing
 
 We welcome contributions! Please review our guides to get started:
-* [CONTRIBUTING.md](CONTRIBUTING.md) — Git workflow and commit conventions.
-* [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Pledge of inclusion.
-* [SECURITY.md](SECURITY.md) — Vulnerability reporting policy.
+
+- [CONTRIBUTING.md](CONTRIBUTING.md) — Git workflow and commit conventions.
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — Pledge of inclusion.
+- [SECURITY.md](SECURITY.md) — Vulnerability reporting policy.
 
 ---
 

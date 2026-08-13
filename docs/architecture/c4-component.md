@@ -1,5 +1,14 @@
 # C4 Level 3: Component Diagram
 
+> **Note on accuracy:** this predates the actual workflow/tool implementation
+> and describes a more generic "Tool Selection Engine"/"Memory Retrieval
+> Engine using pgvector" design. What's real: `WorkflowRouter` dispatches to
+> one of four concrete workflows (not a generic tool-selection loop —
+> see [workflows.md](workflows.md)); the one real LLM tool
+> (`search_documentation`) does in-app cosine similarity, not a pgvector
+> query (see `workflows.md`'s "Why two doc-retrieval paths?"); conversation
+> memory is a plain recent-messages SQL query, not vector search.
+
 ## Component Diagram
 
 The Component diagram details the internal components of the **Caspian Agent Runtime** and the **Cognitive Context Assembly** pipelines.

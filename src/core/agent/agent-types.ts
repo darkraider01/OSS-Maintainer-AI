@@ -5,6 +5,7 @@ import type {
 } from '../../gateway/adapters/communication-types.js';
 import type { LLMProvider } from '../llm/llm-provider.js';
 import type { Logger } from 'pino';
+import type { IssueTriageState } from '../triage/issue-triage-types.js';
 
 export interface Tool {
   name: string;
@@ -28,6 +29,10 @@ export interface AgentContext {
   logger: Logger;
   config: Record<string, unknown>;
   tools: Tool[];
+  /** Consecutive prior low-confidence/unresolved turns for this conversation — feeds EscalationService. */
+  escalation: { failureStreak: number };
+  /** In-flight multi-turn Issue Triage state for this conversation, if any. */
+  triageState: IssueTriageState | null;
 }
 
 export interface AgentResponse {
