@@ -95,7 +95,15 @@ export class CommunicationService implements ICommunicationService {
       {
         provider,
         channelType: rawMessage.channel || 'message_sent',
-        externalThreadId: rawMessage.conversationId || 'default_thread',
+        // Caspian's real wire format (both webhook and polling ingress) uses
+        // snake_case `conversation_id`; the GitHub webhook path builds a
+        // synthetic message with camelCase `conversationId` directly for
+        // this same ingest() contract. Accept either so a real per-thread id
+        // is never mistaken for "no id" and collapsed into the shared
+        // 'default_thread' fallback (that collapse merges every Slack/Discord
+        // conversation across every user into one conversation row).
+        externalThreadId:
+          pickString(rawMessage, ['conversationId', 'conversation_id']) || 'default_thread',
         repositoryId: null,
       },
       correlationId

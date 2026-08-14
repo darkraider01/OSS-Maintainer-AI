@@ -47,4 +47,40 @@ describe('Communication Normalization Layer Subsystem', () => {
     expect(retryEnvelope).toBeNull();
     expect(publisher).toHaveBeenCalledOnce(); // No new calls
   });
+
+  it('resolves distinct conversations from snake_case conversation_id (Caspian\'s real wire format), not the "default_thread" collapse', async () => {
+    // Regression test: Caspian's actual Slack/Discord ingress (fromSdkMessage
+    // / fromEventRecord in src/gateway/caspian/inbound-message.ts) delivers
+    // the thread id as `conversation_id`, not `conversationId`. Reading only
+    // the camelCase key silently collapsed every Slack/Discord conversation,
+    // from every user, into one shared 'default_thread' row.
+    const dedup = new DeduplicationService();
+    const conv = new ConversationService();
+    const ident = new IdentityService();
+    const persist = new MessagePersistenceService();
+    const publisher = vi.fn();
+    const commService = new CommunicationService(dedup, conv, ident, persist, publisher);
+
+    const messageA = {
+      id: 'slack_msg_a',
+      conversation_id: 'slack_thread_alice',
+      channel: 'slack',
+      sender: { id: 'alice', username: 'alice' },
+      text: 'hello from alice',
+    };
+    const messageB = {
+      id: 'slack_msg_b',
+      conversation_id: 'slack_thread_bob',
+      channel: 'slack',
+      sender: { id: 'bob', username: 'bob' },
+      text: 'hello from bob',
+    };
+
+    const envelopeA = await commService.ingest(messageA, 'slack');
+    const envelopeB = await commService.ingest(messageB, 'slack');
+
+    expect(envelopeA).not.toBeNull();
+    expect(envelopeB).not.toBeNull();
+    expect(envelopeA!.payload.conversationId).not.toBe(envelopeB!.payload.conversationId);
+  });
 });
