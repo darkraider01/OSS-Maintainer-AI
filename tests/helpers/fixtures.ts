@@ -144,6 +144,7 @@ export function issueCommentPayload(
     id: 555001,
     number: 42,
     title: 'The build fails on Windows',
+    body: 'Steps to reproduce:\n1. `pnpm install`\n2. `pnpm build`\n\ncc @maintainer-bot',
     html_url: 'https://github.com/darkraider01/OSS-Maintainer-AI/issues/42',
     user: githubSender(),
   };

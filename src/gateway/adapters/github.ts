@@ -162,6 +162,15 @@ function asNumber(value: unknown): number | null {
   return typeof value === 'number' && Number.isFinite(value) ? value : null;
 }
 
+/** Keeps a long issue/PR description from blowing up the prompt's token budget. */
+const MAX_ISSUE_BODY_LENGTH = 4000;
+
+function truncateForPrompt(text: string | null): string | null {
+  if (!text) return null;
+  if (text.length <= MAX_ISSUE_BODY_LENGTH) return text;
+  return `${text.slice(0, MAX_ISSUE_BODY_LENGTH)}\n[...truncated]`;
+}
+
 export interface GitHubRepositoryInfo {
   owner: string;
   repo: string;
@@ -210,6 +219,14 @@ interface ExtractedGitHubEvent {
   number: number;
   text: string | null;
   subject: string | null;
+  /**
+   * The parent issue/PR's own description — distinct from `text` for
+   * comment-type events, where `text` is just the comment body. Without
+   * this, a comment on issue #28 has no way to know what issue #28 is
+   * actually about. Null for 'issues'/'pull_request' events, where `text`
+   * already *is* the description.
+   */
+  parentBody: string | null;
   occurredAt: string;
   htmlUrl: string | null;
   commentId: number | null;
@@ -231,6 +248,7 @@ function extractEventDetails(
         number,
         text: asString(issue.body),
         subject: asString(issue.title),
+        parentBody: null,
         occurredAt: asString(issue.created_at) ?? new Date().toISOString(),
         htmlUrl: asString(issue.html_url),
         commentId: null,
@@ -248,6 +266,7 @@ function extractEventDetails(
         number,
         text: asString(comment.body),
         subject: asString(issue.title),
+        parentBody: asString(issue.body),
         occurredAt: asString(comment.created_at) ?? new Date().toISOString(),
         htmlUrl: asString(comment.html_url),
         commentId: asNumber(comment.id),
@@ -263,6 +282,7 @@ function extractEventDetails(
         number,
         text: asString(pr.body),
         subject: asString(pr.title),
+        parentBody: null,
         occurredAt: asString(pr.created_at) ?? new Date().toISOString(),
         htmlUrl: asString(pr.html_url),
         commentId: null,
@@ -279,6 +299,7 @@ function extractEventDetails(
         number,
         text: asString(review.body),
         subject: asString(pr.title),
+        parentBody: asString(pr.body),
         occurredAt: asString(review.submitted_at) ?? new Date().toISOString(),
         htmlUrl: asString(review.html_url),
         commentId: asNumber(review.id),
@@ -296,6 +317,7 @@ function extractEventDetails(
         number,
         text: asString(comment.body),
         subject: asString(pr.title),
+        parentBody: asString(pr.body),
         occurredAt: asString(comment.created_at) ?? new Date().toISOString(),
         htmlUrl: asString(comment.html_url),
         commentId: asNumber(comment.id),
@@ -357,6 +379,11 @@ export function normalizeGitHubWebhookEvent(
     provider: 'github',
     owner: repository.owner,
     repositoryName: repository.repo,
+    issueTitle: details.subject ?? undefined,
+    // For 'issues'/'pull_request' events `text` already *is* the
+    // description; `parentBody` only carries a distinct value for
+    // comment-type events (a comment on an existing issue/PR).
+    issueBody: truncateForPrompt(details.parentBody) ?? undefined,
   };
 
   const rawMessage: Record<string, unknown> = {

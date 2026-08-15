@@ -50,6 +50,10 @@ export interface RepositoryContext {
   project?: string;
   branch?: string;
   defaultBranch?: string;
+  /** Title of the issue/PR this event belongs to, when applicable (GitHub only). */
+  issueTitle?: string;
+  /** The issue/PR's own description — distinct from the triggering comment's text. */
+  issueBody?: string;
 }
 
 export interface ConversationContext {

@@ -62,6 +62,42 @@ describe('GitHub webhook normalization', () => {
     expect((result!.rawMessage.sender as any).login).toBe('contributor-two');
   });
 
+  it('carries the parent issue title/body into repositoryContext, distinct from the comment text', () => {
+    // Regression: a comment on an existing issue previously had no way to
+    // know what that issue was actually about (the LLM only ever saw the
+    // comment text) — this is what wires the issue's own description
+    // through to the prompt.
+    const result = normalizeGitHubWebhookEvent({
+      eventName: 'issue_comment',
+      deliveryId: 'delivery-2c',
+      payload: issueCommentPayload(),
+    });
+
+    expect(result).not.toBeNull();
+    const repositoryContext = result!.rawMessage.repositoryContext as any;
+    expect(repositoryContext.issueTitle).toBe('The build fails on Windows');
+    expect(repositoryContext.issueBody).toBe(
+      'Steps to reproduce:\n1. `pnpm install`\n2. `pnpm build`\n\ncc @maintainer-bot'
+    );
+    // The comment's own text is untouched and still distinct from the issue body.
+    expect(result!.rawMessage.text).toBe(
+      'Thanks for the report — can you share the full error output?'
+    );
+  });
+
+  it('leaves issueBody unset for a freshly-opened issue, where text already is the description', () => {
+    const result = normalizeGitHubWebhookEvent({
+      eventName: 'issues',
+      deliveryId: 'delivery-1b',
+      payload: issuesOpenedPayload(),
+    });
+
+    expect(result).not.toBeNull();
+    const repositoryContext = result!.rawMessage.repositoryContext as any;
+    expect(repositoryContext.issueTitle).toBe('The build fails on Windows');
+    expect(repositoryContext.issueBody).toBeUndefined();
+  });
+
   it('normalizes issue_comment.created on a pull request as a pull_request conversation', () => {
     const result = normalizeGitHubWebhookEvent({
       eventName: 'issue_comment',

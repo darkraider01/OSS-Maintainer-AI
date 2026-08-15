@@ -29,8 +29,14 @@ export class PromptBuilder {
       repository
         ? `Repository: ${repository.owner}/${repository.repositoryName}`
         : `No repository context available.`,
+      repository?.issueTitle ? `Issue/PR Title: ${repository.issueTitle}` : null,
+      repository?.issueBody
+        ? `Issue/PR Description (read this before asking the user to repeat it):\n${repository.issueBody}`
+        : null,
       `Maintain a polite and professional tone.`,
-    ].join('\n');
+    ]
+      .filter((line): line is string => line !== null)
+      .join('\n');
 
     const historyPrompt =
       history.length > 0
