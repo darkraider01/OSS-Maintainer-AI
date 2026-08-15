@@ -63,9 +63,27 @@ export class CommunicationService implements ICommunicationService {
     };
 
     // Self-event loop protection
+    // 'address' matters: Caspian doesn't consistently shape `sender` the
+    // same way across message contexts — a thread reply can carry the
+    // sender's id under `address` (e.g. Slack's user ID) with no `id` field
+    // at all, unlike a top-level channel message. Missing it here doesn't
+    // just lose a field: it silently mints a brand-new, unlinked identity
+    // for a sender who already has one (breaks identity linking, splits
+    // conversation history across two actors).
     const providerUserId =
-      pickString(rawMessage.sender, ['id', 'user_id', 'provider_id', 'providerActorId']) ||
-      'unknown';
+      pickString(rawMessage.sender, [
+        'id',
+        'user_id',
+        'provider_id',
+        'providerActorId',
+        'address',
+      ]) || 'unknown';
+    if (providerUserId === 'unknown') {
+      log.warn(
+        { sender: rawMessage.sender },
+        'Could not resolve a provider_user_id from message.sender; falling back to "unknown" (creates a fresh unlinked identity instead of matching the real sender)'
+      );
+    }
     if (await this.identityService.isSelfEvent(provider, providerUserId, correlationId)) {
       log.info({ providerUserId }, 'Dropped self-event loop message');
       return null;
