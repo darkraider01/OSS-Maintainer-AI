@@ -19,6 +19,16 @@ import type { WorkflowMetadata } from './workflow-types.js';
 import { metrics } from '../observability/metrics.js';
 import { randomUUID } from 'crypto';
 import { ContributorProfileService } from '../contributor/contributor-profile-service.js';
+import { IdentityService } from '../../gateway/adapters/identity-service.js';
+import type { IIdentityService } from '../../gateway/adapters/communication-types.js';
+
+/**
+ * Stable per-provider identity for the agent's own outgoing replies —
+ * distinct from GitHub's real bot login (`ensureGitHubBotActor`, used for
+ * self-event webhook protection); this one exists purely so replies have
+ * an actor to persist against.
+ */
+const AGENT_PROVIDER_USER_ID = 'oss-maintainer-ai-bot';
 
 export class WorkflowEngine {
   constructor(
@@ -27,7 +37,8 @@ export class WorkflowEngine {
     private readonly llmProvider: LLMProvider,
     private readonly outputAdapters: OutputAdapters,
     private readonly stateStore: ConversationStateStore = new ConversationStateStore(),
-    private readonly contributorProfileService: ContributorProfileService = new ContributorProfileService()
+    private readonly contributorProfileService: ContributorProfileService = new ContributorProfileService(),
+    private readonly identityService: IIdentityService = new IdentityService()
   ) {}
 
   /**
@@ -277,6 +288,40 @@ export class WorkflowEngine {
     // 7. Egress Reply
     log.info('Publishing agent response to callback target');
     await envelope.respond(replyText);
+
+    // 8. Persist the agent's own reply so future turns' memory and
+    // cross-channel history include what the bot actually said, not just
+    // what the human asked (previously only the inbound message was ever
+    // written to `messages`). Deliberately after — and isolated from —
+    // the reply itself: sending the answer must never depend on this
+    // side effect succeeding.
+    try {
+      const agentActorId = await this.identityService.resolveActor(
+        {
+          provider: event.provider,
+          providerUserId: AGENT_PROVIDER_USER_ID,
+          username: 'OSS-Maintainer-AI',
+          displayName: 'OSS-Maintainer-AI',
+        },
+        envelope.correlationId
+      );
+      await db
+        .update(actors)
+        .set({ type: 'agent' })
+        .where(and(eq(actors.id, agentActorId), ne(actors.type, 'agent')));
+      await db.insert(messages).values({
+        id: randomUUID(),
+        conversationId: event.conversationId,
+        senderActorId: agentActorId,
+        content: replyText,
+        createdAt: new Date(),
+      });
+    } catch (error) {
+      log.error(
+        { err: error },
+        'Failed to persist agent reply; memory for this turn will be incomplete'
+      );
+    }
   }
 
   /**
