@@ -96,8 +96,13 @@ const envSchema = z.object({
     .string()
     .default('true')
     .transform((value) => value.toLowerCase() === 'true'),
-  LLM_PROVIDER: z.string().default('gemini'),
+  LLM_PROVIDER: z.string().default('openrouter'),
   LLM_API_KEY: z.string().optional(),
+  OPENROUTER_API_KEY: z.string().optional(),
+  OPENROUTER_MODEL: z.string().default('google/gemma-4-26b-a4b-it:free'),
+  OPENROUTER_BASE_URL: z.string().url().default('https://openrouter.ai/api/v1'),
+  GEMINI_MODEL: z.string().default('gemini-2.5-flash'),
+  GEMINI_EMBEDDING_MODEL: z.string().default('gemini-embedding-001'),
 
   /**
    * Escalation notification (#20): who gets @-mentioned in the escalation
@@ -185,7 +190,12 @@ export function parseEnv(source: NodeJS.ProcessEnv = process.env): Env {
     }
   }
 
-  return result.data;
+  const data = result.data;
+  if (!data.LLM_API_KEY && data.OPENROUTER_API_KEY) {
+    data.LLM_API_KEY = data.OPENROUTER_API_KEY;
+  }
+
+  return data;
 }
 
 export const env = parseEnv();

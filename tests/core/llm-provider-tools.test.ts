@@ -117,3 +117,73 @@ describe('LiveLLMProvider.generateWithTools', () => {
     ]);
   });
 });
+
+describe('LiveLLMProvider with OpenRouter', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('sends OpenAI/OpenRouter formatted tools and parses tool_calls', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: null,
+              tool_calls: [
+                {
+                  id: 'call_1',
+                  type: 'function',
+                  function: {
+                    name: 'search_documentation',
+                    arguments: JSON.stringify({ query: 'gemma setup' }),
+                  },
+                },
+              ],
+            },
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = new LiveLLMProvider('real-api-key', 'openrouter');
+    const result = await provider.generateWithTools('sys', 'how do I set this up?', [SEARCH_TOOL]);
+
+    expect(result.text).toBeNull();
+    expect(result.toolCalls).toEqual([
+      { name: 'search_documentation', arguments: { query: 'gemma setup' } },
+    ]);
+
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toContain('/chat/completions');
+    const body = JSON.parse(init.body);
+    expect(body.tools[0].function.name).toBe('search_documentation');
+    expect(body.messages).toHaveLength(2);
+  });
+
+  it('returns text response when model answers directly without tool calls', async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        choices: [
+          {
+            message: {
+              role: 'assistant',
+              content: 'Direct response from Gemma model.',
+            },
+          },
+        ],
+      }),
+    });
+    vi.stubGlobal('fetch', fetchMock);
+
+    const provider = new LiveLLMProvider('real-api-key', 'openrouter');
+    const result = await provider.generate('sys', 'hello');
+
+    expect(result.text).toBe('Direct response from Gemma model.');
+    expect(result.metadata?.provider).toBe('openrouter');
+  });
+});
