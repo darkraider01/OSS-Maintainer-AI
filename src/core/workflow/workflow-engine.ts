@@ -9,6 +9,7 @@ import { db } from '../../db/client.js';
 import { messages } from '../../db/schema/messages.js';
 import { actorAccounts } from '../../db/schema/actor_accounts.js';
 import { actors } from '../../db/schema/actors.js';
+import { conversationChannelMappings } from '../../db/schema/conversation_channel_mappings.js';
 import { eq, desc, and, ne, inArray } from 'drizzle-orm';
 import { ConversationStateStore } from '../state/conversation-state-store.js';
 import {
@@ -121,7 +122,7 @@ export class WorkflowEngine {
     let crossChannelHistory: Array<{
       role: 'user' | 'assistant';
       content: string;
-      conversationId: string;
+      provider: string;
     }> = [];
     if (otherConversations.length > 0) {
       const convIds = otherConversations.map((c: any) => c.id);
@@ -131,9 +132,14 @@ export class WorkflowEngine {
           senderActorId: messages.senderActorId,
           actorType: actors.type,
           conversationId: messages.conversationId,
+          provider: conversationChannelMappings.provider,
         })
         .from(messages)
         .innerJoin(actors, eq(messages.senderActorId, actors.id))
+        .innerJoin(
+          conversationChannelMappings,
+          eq(messages.conversationId, conversationChannelMappings.conversationId)
+        )
         .where(inArray(messages.conversationId, convIds))
         .orderBy(desc(messages.createdAt))
         .limit(10);
@@ -143,7 +149,7 @@ export class WorkflowEngine {
           role: (msg.actorType === 'agent' || msg.actorType === 'bot' ? 'assistant' : 'user') as
             'user' | 'assistant',
           content: msg.content,
-          conversationId: msg.conversationId,
+          provider: msg.provider,
         }))
         .reverse();
     }

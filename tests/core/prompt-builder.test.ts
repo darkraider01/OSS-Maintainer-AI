@@ -81,4 +81,25 @@ describe('PromptBuilder', () => {
     expect(systemPrompt).toContain('No repository context available.');
     expect(systemPrompt).not.toContain('Issue/PR Title:');
   });
+
+  it('labels cross-channel history by its real provider, not a raw conversation UUID', () => {
+    // Regression: this used to do `conversationId.split(':')[0]`, but
+    // conversationId is a plain UUID with no colon to split on — every
+    // cross-channel line rendered as "[Platform: e675369b-...]" instead of
+    // "[Platform: github]", even though the actual message content was
+    // present and correct.
+    const builder = new PromptBuilder();
+    const { userPrompt } = builder.build(
+      baseEvent({ provider: 'slack' }),
+      conversation,
+      null,
+      [],
+      null,
+      [],
+      [{ role: 'assistant', content: 'Issue #28 is about load/scale testing.', provider: 'github' }]
+    );
+
+    expect(userPrompt).toContain('[Platform: github] assistant: Issue #28 is about load/scale testing.');
+    expect(userPrompt).not.toMatch(/\[Platform: [0-9a-f]{8}-/);
+  });
 });

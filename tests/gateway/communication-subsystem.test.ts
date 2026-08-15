@@ -103,14 +103,14 @@ describe('Communication Normalization Layer Subsystem', () => {
       id: 'slack_top_level',
       conversation_id: 'slack_thread_1',
       channel: 'slack',
-      sender: { id: 'U0BNR40VBGV', name: 'buckie' },
+      sender: { id: 'TEST_ONLY_ADDRESS_SENDER', name: 'buckie' },
       text: 'hey',
     };
     const threadReply = {
       id: 'slack_thread_reply',
       conversation_id: 'slack_thread_2',
       channel: 'slack',
-      sender: { address: 'U0BNR40VBGV', name: null },
+      sender: { address: 'TEST_ONLY_ADDRESS_SENDER', name: null },
       text: 'a follow-up in a thread',
     };
 

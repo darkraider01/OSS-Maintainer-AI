@@ -18,7 +18,7 @@ export class PromptBuilder {
     crossChannelHistory: Array<{
       role: 'user' | 'assistant';
       content: string;
-      conversationId: string;
+      provider: string;
     }> = [],
     contributorProfile: ContributorProfile | null = null
   ): PromptContext {
@@ -52,9 +52,7 @@ export class PromptBuilder {
         : `No other connected platform profiles.`;
 
     const crossChannelStrings = crossChannelHistory
-      .map(
-        (m) => `- [Platform: ${m.conversationId.split(':')[0] || 'other'}] ${m.role}: ${m.content}`
-      )
+      .map((m) => `- [Platform: ${m.provider}] ${m.role}: ${m.content}`)
       .join('\n');
     const crossChannelPrompt =
       crossChannelHistory.length > 0
