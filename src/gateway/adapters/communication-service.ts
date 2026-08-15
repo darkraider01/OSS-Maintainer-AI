@@ -40,6 +40,10 @@ export class CommunicationService implements ICommunicationService {
   ): Promise<EventEnvelope | null> {
     const log = logger.child({ correlationId, provider });
     log.info('Ingesting raw platform message');
+    // Caspian doesn't consistently shape `sender` across message contexts
+    // (see the address-vs-id handling below) — LOG_LEVEL=debug surfaces the
+    // raw shape here so a future mismatch is diagnosable without guessing.
+    log.debug({ sender: rawMessage.sender }, 'Raw sender payload for this message');
     metrics.eventsReceivedTotal.inc({ provider });
 
     const providerEventId = rawMessage.id;
