@@ -181,4 +181,73 @@ describe('WorkflowEngine persists the agent\'s own reply, not just the inbound m
     expect(crossChannelHistoryArg.length).toBeGreaterThan(0);
     expect(crossChannelHistoryArg.every((m) => m.provider === 'github')).toBe(true);
   });
+
+  it('surfaces the 3 most recently active other conversations, not an arbitrary/oldest 3', async () => {
+    // Regression: the query selecting "other conversations" for
+    // cross-channel context had no ORDER BY before its LIMIT 3 — once an
+    // actor had touched more than 3 conversations, which 3 got included
+    // was effectively arbitrary. In practice a brand-new conversation
+    // could be excluded in favor of stale ones, so a fresh cross-platform
+    // exchange never had a chance to surface.
+    const bus = new EventBus();
+    const commService = new CommunicationService(
+      new DeduplicationService(),
+      new ConversationService(),
+      new IdentityService(),
+      new MessagePersistenceService(),
+      async (envelope) => {
+        envelope.respond = async () => {};
+        await bus.publish(envelope as any);
+      }
+    );
+    const agentRuntime = new AgentRuntime({ demoMode: true });
+    bus.subscribe(async (envelope) => {
+      if (envelope.payload) await agentRuntime.processEvent(envelope);
+    });
+
+    const senderId = `U_RECENCY_${Date.now()}`;
+    const conversationIds: string[] = [];
+    for (let i = 0; i < 4; i++) {
+      const envelope = await commService.ingest(
+        {
+          id: `recency_${i}_${Date.now()}`,
+          conversationId: `C_RECENCY_${i}_${Date.now()}`,
+          channel: 'slack',
+          sender: { id: senderId, username: 'reporter' },
+          text: `marker-conversation-${i}`,
+        },
+        'slack'
+      );
+      conversationIds.push(envelope!.payload.conversationId);
+    }
+
+    // Force explicit, unambiguous recency: conversation 0 oldest, 3 newest.
+    const base = Date.now() - 100_000;
+    for (let i = 0; i < conversationIds.length; i++) {
+      await db
+        .update(messages)
+        .set({ createdAt: new Date(base + i * 1000) })
+        .where(eq(messages.conversationId, conversationIds[i]));
+    }
+
+    const buildSpy = vi.spyOn(agentRuntime.promptBuilder, 'build');
+    await commService.ingest(
+      {
+        id: `recency_current_${Date.now()}`,
+        conversationId: `C_RECENCY_CURRENT_${Date.now()}`,
+        channel: 'slack',
+        sender: { id: senderId, username: 'reporter' },
+        text: 'current message',
+      },
+      'slack'
+    );
+
+    expect(buildSpy).toHaveBeenCalledOnce();
+    const crossChannelHistoryArg = buildSpy.mock.calls[0][6] as Array<{ content: string }>;
+    const markers = crossChannelHistoryArg.map((m) => m.content);
+    expect(markers).toContain('marker-conversation-1');
+    expect(markers).toContain('marker-conversation-2');
+    expect(markers).toContain('marker-conversation-3');
+    expect(markers).not.toContain('marker-conversation-0');
+  });
 });

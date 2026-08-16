@@ -10,7 +10,7 @@ import { messages } from '../../db/schema/messages.js';
 import { actorAccounts } from '../../db/schema/actor_accounts.js';
 import { actors } from '../../db/schema/actors.js';
 import { conversationChannelMappings } from '../../db/schema/conversation_channel_mappings.js';
-import { eq, desc, and, ne, inArray } from 'drizzle-orm';
+import { eq, desc, and, ne, inArray, max } from 'drizzle-orm';
 import { ConversationStateStore } from '../state/conversation-state-store.js';
 import {
   DEFAULT_ESCALATION_POLICY,
@@ -107,9 +107,14 @@ export class WorkflowEngine {
       associatedAccounts[0]?.username ||
       null;
 
-    // 4. Load cross-channel context from other conversations this actor participated in
+    // 4. Load cross-channel context from other conversations this actor
+    // participated in — ordered by their most recent activity so a fresh
+    // exchange on another platform actually surfaces here, instead of an
+    // unordered LIMIT arbitrarily favoring whichever 3 conversations the
+    // query planner happens to scan first (which, in practice, tended to
+    // be older ones once an actor had touched more than 3 conversations).
     const otherConversations = await db
-      .selectDistinct({ id: messages.conversationId })
+      .select({ id: messages.conversationId })
       .from(messages)
       .where(
         and(
@@ -117,6 +122,8 @@ export class WorkflowEngine {
           ne(messages.conversationId, event.conversationId)
         )
       )
+      .groupBy(messages.conversationId)
+      .orderBy(desc(max(messages.createdAt)))
       .limit(3);
 
     let crossChannelHistory: Array<{
