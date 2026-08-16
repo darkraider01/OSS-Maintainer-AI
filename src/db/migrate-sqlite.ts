@@ -3,7 +3,10 @@ import { logger } from '../config/logger.js';
 
 export function runSqliteMigrations() {
   logger.info('Initializing SQLite database schema...');
-  const db = new Database('local_dev.db');
+  // Matches src/db/client.ts's own default so a test run pointed at an
+  // isolated SQLITE_DB_PATH doesn't migrate a *different* file than the
+  // one it actually reads/writes through.
+  const db = new Database(process.env.SQLITE_DB_PATH || 'local_dev.db');
 
   const ddl = `
     CREATE TABLE IF NOT EXISTS "actors" (
