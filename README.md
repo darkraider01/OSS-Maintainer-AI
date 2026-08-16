@@ -1,5 +1,12 @@
 # OSS-Maintainer-AI
 
+[![Continuous Integration](https://github.com/darkraider01/OSS-Maintainer-AI/actions/workflows/ci.yml/badge.svg)](https://github.com/darkraider01/OSS-Maintainer-AI/actions/workflows/ci.yml)
+[![Security Audits](https://github.com/darkraider01/OSS-Maintainer-AI/actions/workflows/security.yml/badge.svg)](https://github.com/darkraider01/OSS-Maintainer-AI/actions/workflows/security.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Node.js](https://img.shields.io/badge/node-%3E%3D22-339933?logo=node.js&logoColor=white)](package.json)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](tsconfig.json)
+[![pnpm](https://img.shields.io/badge/pnpm-11-F69220?logo=pnpm&logoColor=white)](pnpm-workspace.yaml)
+
 An autonomous, multi-platform AI co-maintainer built on top of the **Caspian SDK**.
 
 ---
@@ -382,7 +389,7 @@ The core cognitive engines—**Maintainer Agent, Workflow Engine, Memory pipelin
 
 ### Prerequisites
 
-- Node.js (v18+)
+- Node.js (v22+)
 - pnpm (v11+)
 - PostgreSQL (with `pgvector`) or SQLite (default fallback for zero-config)
 
@@ -403,10 +410,11 @@ pnpm install
    ```bash
    cp .env.example .env
    ```
-2. Initialize tables using Drizzle:
+2. Apply the tracked migrations (Postgres):
    ```bash
-   pnpm exec drizzle-kit push
+   pnpm exec drizzle-kit migrate
    ```
+   Running locally without `DATABASE_URL` set falls back to a zero-config SQLite file (`local_dev.db`), auto-migrated on first run — no separate step needed for the Quick Start demo above.
 
 ### Execution Commands
 

@@ -27,6 +27,7 @@ import { GitHubOAuthClient } from './web/oauth/github-oauth.js';
 import { SlackOAuthClient } from './web/oauth/slack-oauth.js';
 import { DiscordOAuthClient } from './web/oauth/discord-oauth.js';
 import { Runtime as AgentRuntime } from './core/runtime.js';
+import { runSqliteMigrations } from './db/migrate-sqlite.js';
 
 export interface Runtime {
   bus: EventBus;
@@ -55,6 +56,15 @@ export async function bootstrap(options?: { client?: any }): Promise<Runtime> {
     },
     'Bootstrapping OSS-Maintainer-AI Core Engine...'
   );
+
+  // Same dialect condition src/db/client.ts uses to pick SQLite over
+  // Postgres. Without this, a fresh checkout's first `pnpm run dev` hits
+  // "no such table: actor_accounts" on the very first inbound message -
+  // demo-cli.ts and load-test.ts already migrate themselves; bootstrap()
+  // is the one real entry point that didn't.
+  if (env.NODE_ENV !== 'production' && !process.env.DATABASE_URL) {
+    runSqliteMigrations();
+  }
 
   const client = options?.client || createCommClient();
   const bus = new EventBus();
